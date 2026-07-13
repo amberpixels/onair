@@ -28,7 +28,7 @@ service, a commit can be at one of three tiers, in increasing fidelity:
 |-----------|-------------------------------------------|--------------------------------|
 | **HEAD**  | Latest commit on the tracked branch       | Forge API / git                |
 | **Green** | Latest commit whose CI pipeline passed    | Forge CI API                   |
-| **Live**  | The commit actually running right now      | Probe / image tag / (assumed)  |
+| **Live**  | The commit actually running right now      | Command / probe / (assumed)    |
 
 The trap onair was built to avoid: **"Green" is not "Live."** They match only
 when you always ship latest-green and never lag or roll back. A stalled deploy or
@@ -87,6 +87,7 @@ type Forge interface {
     LatestGreen(ctx context.Context, branch string) (Ref, error)   // Green tier
     Resolve(ctx context.Context, sha string) (Ref, error)          // metadata for a sha
     Behind(ctx context.Context, from, to string) (int, error)      // "N behind"
+    Recent(ctx context.Context, branch string, limit int) ([]Ref, error) // attribution auto-gate
     CommitURL(sha string) string
     RequestURL(id string) string                                   // MR / PR link
 }
@@ -98,7 +99,10 @@ First impl: **GitLab** (our world). Later: **GitHub** (drop-in, same interface).
 
 ```go
 type LiveProvider interface {
-    Live(ctx context.Context, c Component) (Ref, LiveConfidence, error)
+    // A full/short SHA or anything the Forge can resolve to one, plus
+    // builtAt when known and the confidence tier. The engine resolves
+    // the rest. A nil provider on a Component means Assumed = Green.
+    Live(ctx context.Context) (LiveInfo, error)
 }
 ```
 
@@ -106,12 +110,15 @@ Impls, in fidelity order:
 
 - **`probe`** - GET a `/-/version` endpoint returning `{commit, builtAt}`.
   Highest fidelity. Needs the app to self-stamp (see §5).
-- **`image`** - read the running container's image tag when `tag == short sha`.
-  Zero app changes; works for our compose deploy.
+- **`command`** - run a user-supplied command whose stdout is the answer (a SHA,
+  a tag, an image ref - resolved via `Forge.Resolve`). The universal adapter:
+  kubectl, flyctl, `ssh + docker inspect`, even the heroku CLI - all one seam,
+  zero adapters written by us (DESIGN decision 7).
 - **`assumed`** - fall back to Green, flagged `LiveConfidence = Assumed`.
 
-`LiveConfidence` (`Probed` / `ImageTag` / `Assumed`) is what lets the renderer be
-honest about how much it actually knows.
+`LiveConfidence` (`Probed` / `Reported` / `Assumed`) is what lets the renderer be
+honest about how much it actually knows - `Reported` marks command output:
+user-asserted truth we didn't observe ourselves.
 
 ### Identity - who is viewing (for "yours")
 
@@ -171,17 +178,17 @@ it tells the truth.
 ### Terminal (CLI renderer)
 
 ```
-p44 · prod                                    gitlab.com/amberpixels/p44
+p44 · prod                                   gitlab.com/amberpixels/p44
 
-HEAD    a1b2c3d  (2h ago) by Alice
-  → Fix the thing  ↗ !1234
+HEAD    a1b2c3d (2h ago) by Alice
+→ Fix the thing • ↗ !1234
 
-Green   a1b2c3d  (2h ago) by Alice                         ★ == HEAD
-  → Fix the thing  ↗ !1234
+Green   a1b2c3d (2h ago) by Alice  ★ == HEAD
+→ Fix the thing • ↗ !1234
 
-Live    9e8d7c6  (3h ago) by Eugene   ↓ 1 behind green · 1 behind main   (yours)
+Live    9e8d7c6 (3h ago) by Eugene  ↓ 1 behind green · 1 behind main · ✓ yours
   backend 9e8d7c6 · web 9e8d7c6   in sync
-  → Add the widget API  ↗ !1230
+→ Add the widget API • ↗ !1230
 ```
 
 When there is no probe, the Live header reads `Live (assumed = green)` and drops
@@ -228,6 +235,8 @@ environments:
         live: { probe: "https://pieton.md/api/-/version" }
       - name: web
         live: { probe: "https://pieton.md/-/version" }
+      - name: worker   # no HTTP surface -> ask the host directly
+        live: { command: "ssh prod docker inspect worker --format '{{.Config.Image}}'" }
 ```
 
 ---
@@ -242,19 +251,19 @@ environments:
 
 ---
 
-## Shape of the repo (proposed)
+## Shape of the repo
 
 ```
-amberpixels/onair-go
-  onair/            core: domain + provider interfaces + report rules. Pure.
-  onair/gitlab      Forge impl
-  onair/live        probe / image / assumed impls
-  onair/render      tty + json renderers
-  cmd/onair         CLI binary
-  contrib/buildinfo Go self-stamp helper (§5)
-  contrib/vite      Vite stamp plugin (§5)
+amberpixels/onair       module github.com/amberpixels/onair
+  .                     core: domain + provider interfaces + report rules. Pure.
+  gitlab/               Forge impl
+  live/                 probe / command / static impls (assumed lives in the engine)
+  render/               tty (lipgloss) + json renderers
+  config/               .onair.yml loading
+  cmd/onair/            CLI binary
+  contrib/buildinfo/    Go self-stamp helper (§5) - not built yet
+  contrib/vite/         Vite stamp plugin (§5) - not built yet
 ```
 
-Host apps import `onair/` core, wire providers, get a `Report`, render it. p44 is
+Host apps import the core, wire providers, get a `Report`, render it. p44 is
 consumer #1 and the test-drive - same relationship r3/k1/years have with p44.
-# onair
