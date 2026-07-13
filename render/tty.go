@@ -79,6 +79,18 @@ func TTY(w io.Writer, r *onair.Report, opts TTYOptions) error {
 		strings.Repeat(" ", pad), p.s.dim.Render(right))
 	p.linef("")
 
+	// The common, boring, good case: everything on air is the latest commit.
+	// Collapse the three identical tiers to one "Deployed: … ★ current" line -
+	// the multi-tier breakdown is only worth its space when tiers disagree.
+	if live, ok := converged(r); ok {
+		p.deployedRow(live)
+		for _, e := range r.Errors {
+			p.linef("")
+			p.linef("%s %s", p.s.warn.Render("!"), p.s.dim.Render(e))
+		}
+		return p.err
+	}
+
 	if r.Head != nil {
 		p.commitRow(p.s.label(p.s.head, "HEAD"), r.Head, "")
 		p.subjectRow(r.Head)
@@ -173,6 +185,49 @@ func (p *printer) liveRows(r *onair.Report) {
 	p.subjectRow(&lead.CommitInfo)
 }
 
+// converged reports the single deployed commit when every known tier agrees on
+// it - HEAD == Green == every component's Live, with no cross-component drift.
+// That is the signal to collapse the report to one line. It returns the leader
+// Live (any component; they all share the SHA) so the caller keeps its
+// confidence and "yours" flag.
+func converged(r *onair.Report) (*onair.LiveReport, bool) {
+	if r.Head == nil || r.Green == nil || r.Drift != nil {
+		return nil, false
+	}
+	if !onair.SameSHA(r.Green.SHA, r.Head.SHA) {
+		return nil, false
+	}
+	if len(r.Components) == 0 {
+		return nil, false
+	}
+	var leader *onair.LiveReport
+	for i := range r.Components {
+		c := &r.Components[i]
+		if c.Live == nil || !onair.SameSHA(c.Live.SHA, r.Head.SHA) {
+			return nil, false
+		}
+		if leader == nil {
+			leader = c.Live
+		}
+	}
+	return leader, leader != nil
+}
+
+// deployedRow is the collapsed, converged view: one line saying the latest
+// commit is what's on air. When Live is only assumed from Green it still says
+// so - honesty over a cleaner line.
+func (p *printer) deployedRow(live *onair.LiveReport) {
+	suffix := []string{p.s.good.Render("★ current")}
+	if live.Confidence == onair.Assumed {
+		suffix = append(suffix, p.s.dim.Render("(assumed = green)"))
+	}
+	if live.Mine {
+		suffix = append(suffix, p.s.mine.Render("✓ yours"))
+	}
+	p.commitRow(p.s.green.Render("Deployed:"), &live.CommitInfo, strings.Join(suffix, " · "))
+	p.subjectRow(&live.CommitInfo)
+}
+
 // commitRow prints a tier's main line: label, sha, age, author, suffix.
 func (p *printer) commitRow(label string, ci *onair.CommitInfo, suffix string) {
 	parts := []string{label, p.s.sha.Render(onair.ShortSHA(ci.SHA))}
@@ -241,9 +296,17 @@ type printer struct {
 	err error
 }
 
+// gutter is the left padding on every non-blank line, so the report breathes
+// instead of hugging the terminal's left edge.
+const gutter = "  "
+
 func (p *printer) linef(format string, args ...any) {
 	if p.err != nil {
 		return
 	}
-	_, p.err = fmt.Fprintf(p.w, format+"\n", args...)
+	prefix := gutter
+	if format == "" {
+		prefix = "" // blank separators stay empty, no trailing spaces
+	}
+	_, p.err = fmt.Fprintf(p.w, prefix+format+"\n", args...)
 }

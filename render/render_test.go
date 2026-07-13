@@ -72,6 +72,48 @@ func TestTTY(t *testing.T) {
 	}
 }
 
+// When HEAD == Green == every component's Live, the report collapses to a
+// single "Deployed: … ★ current" line and drops the per-tier breakdown.
+func TestTTYConverged(t *testing.T) {
+	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	head := onair.CommitInfo{
+		SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face",
+		Author: "Eugene", At: at, Mine: true, Request: "!4076",
+	}
+	r := &onair.Report{
+		Project: "p44", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Host: "gitlab.com", Repo: "amberpixels/p44", Branch: "main"},
+		Head:  &head,
+		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
+		Components: []onair.ComponentReport{
+			{Name: "backend", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Probed}},
+			{Name: "web", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Probed}},
+		},
+		Attribution: onair.AttributionAuto,
+	}
+
+	var buf strings.Builder
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "Deployed: 6a9af3d (1h ago) by Eugene") {
+		t.Errorf("missing collapsed deployed line:\n%s", out)
+	}
+	for _, want := range []string{"★ current", "✓ yours", "→ Stepper face • ↗ !4076"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("converged output missing %q:\n%s", want, out)
+		}
+	}
+	// The whole point of the collapse: no multi-tier breakdown.
+	for _, absent := range []string{"HEAD", "Green", "Live", "== HEAD", "in sync"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("converged output should not contain %q:\n%s", absent, out)
+		}
+	}
+}
+
 func TestJSON(t *testing.T) {
 	var buf strings.Builder
 	if err := render.JSON(&buf, report()); err != nil {
