@@ -156,6 +156,8 @@ func (p *printer) liveRows(r *onair.Report) {
 		suffix = append(suffix, p.s.dim.Render("(assumed = green)"))
 	case onair.Reported:
 		suffix = append(suffix, p.s.dim.Render("(reported)"))
+	case onair.Recorded:
+		suffix = append(suffix, p.s.dim.Render("(recorded)"))
 	}
 	if lead.Mine {
 		suffix = append(suffix, p.s.mine.Render("✓ yours"))
@@ -179,8 +181,13 @@ func (p *printer) liveRows(r *onair.Report) {
 			if mark := p.stateMark(c.Live); mark != "" {
 				cell += " " + mark
 			}
-			if c.Live.Confidence == onair.Assumed && !allAssumed {
+			switch {
+			case c.Live.Confidence == onair.Assumed && !allAssumed:
 				cell += " " + p.s.dim.Render("(assumed)")
+			case c.Live.Confidence.Weaker(lead.Confidence):
+				// The Live row labels only the leader, so a weaker claim
+				// beside it carries its own label.
+				cell += " " + p.s.dim.Render("("+string(c.Live.Confidence)+")")
 			}
 			cells = append(cells, cell)
 		}
@@ -205,14 +212,44 @@ func (p *printer) liveRows(r *onair.Report) {
 		p.linef("  %s   %s", strings.Join(cells, " · "), strings.Join(status, " · "))
 	}
 	p.subjectRow(&lead.CommitInfo)
+	p.rolloutRows(r)
+}
+
+// rolloutRows prints one line per component whose newer deploy is in flight
+// or failed, named when there are several components.
+func (p *printer) rolloutRows(r *onair.Report) {
+	for _, c := range r.Components {
+		if c.Live == nil || c.Live.Rollout == nil {
+			continue
+		}
+		ro := c.Live.Rollout
+		sha := p.s.sha.Render(onair.ShortSHA(ro.SHA))
+		var line string
+		switch ro.Status {
+		case onair.RolloutPending:
+			line = p.s.warn.Render("⟳ deploying") + " " + sha
+		case onair.RolloutFailed:
+			line = p.s.warn.Render("✗ deploy of") + " " + sha + " " + p.s.warn.Render("failed")
+		default:
+			line = string(ro.Status) + " " + sha
+		}
+		if !ro.At.IsZero() {
+			line += " " + p.s.dim.Render("("+ago(p.now.Sub(ro.At))+")")
+		}
+		if len(r.Components) > 1 {
+			line = c.Name + " " + line
+		}
+		p.linef("  %s", line)
+	}
 }
 
 // converged reports the single deployed commit when every known tier agrees on
 // it - HEAD == Green == every component's Live, with no cross-component drift
-// and every component serving (a restart loop on HEAD is not "current").
-// That is the signal to collapse the report to one line. It returns the leader
-// Live (any component; they all share the SHA) so the caller keeps its
-// confidence and "yours" flag.
+// and every component serving (a restart loop on HEAD is not "current") and
+// no deploy in flight or failed (the collapsed line would hide it).
+// That is the signal to collapse the report to one line. It returns the Live
+// with the weakest confidence (they all share the SHA), so the one line never
+// claims more than the least certain component knows.
 func converged(r *onair.Report) (*onair.LiveReport, bool) {
 	if r.Head == nil || r.Green == nil || r.Drift != nil {
 		return nil, false
@@ -226,10 +263,10 @@ func converged(r *onair.Report) (*onair.LiveReport, bool) {
 	var leader *onair.LiveReport
 	for i := range r.Components {
 		c := &r.Components[i]
-		if c.Live == nil || !onair.SameSHA(c.Live.SHA, r.Head.SHA) || !c.Live.Serving() {
+		if c.Live == nil || c.Live.Rollout != nil || !onair.SameSHA(c.Live.SHA, r.Head.SHA) || !c.Live.Serving() {
 			return nil, false
 		}
-		if leader == nil {
+		if leader == nil || c.Live.Confidence.Weaker(leader.Confidence) {
 			leader = c.Live
 		}
 	}
@@ -241,8 +278,11 @@ func converged(r *onair.Report) (*onair.LiveReport, bool) {
 // so - honesty over a cleaner line.
 func (p *printer) deployedRow(live *onair.LiveReport) {
 	suffix := []string{p.s.good.Render("★ current")}
-	if live.Confidence == onair.Assumed {
+	switch live.Confidence {
+	case onair.Assumed:
 		suffix = append(suffix, p.s.dim.Render("(assumed = green)"))
+	case onair.Recorded:
+		suffix = append(suffix, p.s.dim.Render("(recorded)"))
 	}
 	if live.Mine {
 		suffix = append(suffix, p.s.mine.Render("✓ yours"))

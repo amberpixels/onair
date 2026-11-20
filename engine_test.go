@@ -349,3 +349,49 @@ func TestServing(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectRecordedWithRollout(t *testing.T) {
+	forge := &fakeForge{
+		head: refHead, green: refHead,
+		recent: []onair.Ref{refHead, refLive},
+		behind: map[string]int{"9e8d7c6..a1b2c3d": 1},
+	}
+	started := at.Add(-5 * time.Minute)
+	r := collect(t, onair.Params{
+		Forge: forge, Attribution: onair.AttributionOn,
+		Identity: fakeIdentity{"alice@example.com"},
+		Task:     &onair.TaskConfig{Pattern: `WS-\d+`, URL: "https://tasks.test/{id}"},
+		Components: []onair.Component{
+			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{
+				SHA: "9e8d7c6", Confidence: onair.Recorded,
+				Rollout: &onair.Rollout{SHA: "a1b2c3d", Status: onair.RolloutPending, At: started},
+			}}},
+		},
+	})
+
+	lr := r.Components[0].Live
+	if lr.Confidence != onair.Recorded {
+		t.Errorf("recorded confidence must be kept, got %s", lr.Confidence)
+	}
+	ro := lr.Rollout
+	if ro == nil || ro.Status != onair.RolloutPending || !ro.At.Equal(started) {
+		t.Fatalf("expected a pending rollout, got %+v", ro)
+	}
+	if ro.Subject != refHead.Subject || ro.Request != "!1234" {
+		t.Errorf("rollout not resolved and annotated: %+v", ro.CommitInfo)
+	}
+	if !ro.Mine {
+		t.Error("rollout commit is Alice's, the viewer's")
+	}
+}
+
+func TestLiveConfidenceWeaker(t *testing.T) {
+	order := []onair.LiveConfidence{onair.Probed, onair.Reported, onair.Recorded, onair.Assumed, "unknown"}
+	for i := range order {
+		for j := range order {
+			if got, want := order[i].Weaker(order[j]), i > j; got != want {
+				t.Errorf("%q.Weaker(%q) = %v, want %v", order[i], order[j], got, want)
+			}
+		}
+	}
+}

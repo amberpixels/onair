@@ -45,7 +45,10 @@ type Task struct {
 
 // Environment is one deploy target: a named ordered list of components.
 type Environment struct {
-	Components []Component `yaml:"components"`
+	// Environment names the GitLab environment whose deployment records are
+	// Live for every component here without a live source of its own.
+	Environment string      `yaml:"environment"`
+	Components  []Component `yaml:"components"`
 }
 
 // Component configures one deployable unit and its live source.
@@ -54,10 +57,15 @@ type Component struct {
 	Live *LiveSource `yaml:"live"`
 }
 
-// LiveSource picks exactly one live provider; absent means Assumed = Green.
+// LiveSource picks at most one live provider. An empty block means Assumed =
+// Green, and it opts the component out of its environment's deployment
+// records; an absent block inherits them.
 type LiveSource struct {
 	Probe   string `yaml:"probe"`   // /-/version URL
 	Command string `yaml:"command"` // stdout is the answer (see DESIGN.md)
+	// Environment is a GitLab environment whose newest successful
+	// deployment is Live (Recorded confidence).
+	Environment string `yaml:"environment"`
 }
 
 // Load reads and validates one config file.
@@ -134,10 +142,21 @@ func (f *File) validate() error {
 			if c.Name == "" {
 				return fmt.Errorf("environment %q: every component needs a name", name)
 			}
-			if c.Live != nil && c.Live.Probe != "" && c.Live.Command != "" {
-				return fmt.Errorf("component %q: live takes probe or command, not both", c.Name)
+			if c.Live != nil && c.Live.sources() > 1 {
+				return fmt.Errorf("component %q: live takes one of probe, command or environment", c.Name)
 			}
 		}
 	}
 	return nil
+}
+
+// sources counts the live providers the block names.
+func (l *LiveSource) sources() int {
+	n := 0
+	for _, v := range []string{l.Probe, l.Command, l.Environment} {
+		if v != "" {
+			n++
+		}
+	}
+	return n
 }

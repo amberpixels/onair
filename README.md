@@ -116,11 +116,21 @@ Impls, in fidelity order:
   marks the component as not serving. The universal adapter:
   kubectl, flyctl, `ssh + docker inspect`, even the heroku CLI - all one seam,
   zero adapters written by us (DESIGN decision 7).
+- **`environment`** - read the deployments GitLab records for an environment
+  (every CI job that declares `environment:` creates one). The newest successful
+  deployment is Live. A newer one still running shows as `⟳ deploying`, a newer
+  failed one as `✗ deploy of <sha> failed`. Needs only read access to the
+  GitLab project, so it works for viewers who cannot reach the host.
 - **`assumed`** - fall back to Green, flagged `LiveConfidence = Assumed`.
 
-`LiveConfidence` (`Probed` / `Reported` / `Assumed`) is what lets the renderer be
-honest about how much it actually knows - `Reported` marks command output:
-user-asserted truth we didn't observe ourselves.
+`LiveConfidence` (`Probed` / `Reported` / `Recorded` / `Assumed`, highest first)
+is what lets the renderer be honest about how much it actually knows -
+`Reported` marks command output: user-asserted truth we didn't observe
+ourselves. `Recorded` marks a deployment record: what CI recorded at deploy
+time, **not what the host runs now**. A manual change on the host after the
+deploy (a restart on an old image, a hand-run rollback) is invisible to it. It
+is only as good as the deploy job: when the job checks the running commit
+before it succeeds, the record is the commit verified at deploy time.
 
 ### Identity - who is viewing (for "yours")
 
@@ -240,7 +250,16 @@ environments:
         live: { probe: "https://pieton.md/-/version" }
       - name: worker   # no HTTP surface -> ask the host directly
         live: { command: "ssh prod docker inspect worker --format '{{.Config.Image}}'" }
+  staging:
+    environment: staging  # GitLab environment: its deployment records are Live
+    components:           # for every component without a live source
+      - name: backend
+      - name: web
+        live: { environment: staging-web }  # or per component
 ```
+
+A `live:` block takes one of `probe`, `command` or `environment`. An empty
+`live: {}` keeps a component on Assumed and out of its environment's records.
 
 ---
 

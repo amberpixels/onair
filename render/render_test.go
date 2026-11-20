@@ -114,6 +114,82 @@ func TestTTYConverged(t *testing.T) {
 	}
 }
 
+// A recorded Live with newer deploys in flight or failed: the report must not
+// collapse, and each rollout gets its own line.
+func TestTTYRecordedRollout(t *testing.T) {
+	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
+	r := &onair.Report{
+		Project: "p44", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Head:  &head,
+		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
+		Components: []onair.ComponentReport{
+			{Name: "backend", Live: &onair.LiveReport{
+				CommitInfo: head, Confidence: onair.Recorded,
+				Rollout: &onair.RolloutReport{
+					CommitInfo: onair.CommitInfo{SHA: "b0b0b0b"}, Status: onair.RolloutPending, At: at.Add(30 * time.Minute),
+				},
+			}},
+			{Name: "web", Live: &onair.LiveReport{
+				CommitInfo: head, Confidence: onair.Recorded,
+				Rollout: &onair.RolloutReport{CommitInfo: onair.CommitInfo{SHA: "dead000"}, Status: onair.RolloutFailed},
+			}},
+		},
+	}
+
+	var buf strings.Builder
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"(recorded)",
+		"backend ⟳ deploying b0b0b0b (30m ago)",
+		"web ✗ deploy of dead000 failed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Deployed:") {
+		t.Errorf("a rollout must block the collapsed view:\n%s", out)
+	}
+
+	// A probed leader beside a recorded component: the cell carries the label.
+	r.Components[0].Live.Confidence = onair.Probed
+	buf.Reset()
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "web 6a9af3d (recorded)") {
+		t.Errorf("non-leader recorded component lost its label:\n%s", out)
+	}
+
+	// Without rollouts the collapse returns, labeled with the weakest claim.
+	for i := range r.Components {
+		r.Components[i].Live.Rollout = nil
+	}
+	buf.Reset()
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "Deployed:") || !strings.Contains(out, "(recorded)") {
+		t.Errorf("expected a collapsed recorded line:\n%s", out)
+	}
+
+	buf.Reset()
+	r.Components[0].Live.Rollout = &onair.RolloutReport{CommitInfo: onair.CommitInfo{SHA: "b0b0b0b"}, Status: onair.RolloutPending}
+	if err := render.JSON(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"confidence": "recorded"`, `"rollout": {`, `"status": "pending"`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("JSON missing %s:\n%s", want, buf.String())
+		}
+	}
+}
+
 func TestJSON(t *testing.T) {
 	var buf strings.Builder
 	if err := render.JSON(&buf, report()); err != nil {

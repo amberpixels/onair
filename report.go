@@ -63,12 +63,21 @@ type LiveReport struct {
 	State       string `json:"state,omitempty"`
 	BehindGreen int    `json:"behindGreen,omitempty"`
 	BehindHead  int    `json:"behindHead,omitempty"`
+	// Rollout is a newer deploy that is pending or failed.
+	Rollout *RolloutReport `json:"rollout,omitempty"`
 }
 
 // Serving reports whether this Live is serving traffic: true unless the
 // provider reported a state other than running or healthy.
 func (l *LiveReport) Serving() bool {
 	return l == nil || Serving(l.State)
+}
+
+// RolloutReport is a deploy newer than Live that has not succeeded.
+type RolloutReport struct {
+	CommitInfo
+	Status RolloutStatus `json:"status"`
+	At     time.Time     `json:"startedAt,omitzero"`
 }
 
 // Drift flags components that report different Live commits when they should
