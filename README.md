@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" alt="onair" width="380">
+  <img src="logo.svg" alt="onair" width="408">
 </p>
 
 <div align="center">
