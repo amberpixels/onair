@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 80" width="380" height="80" xml:space="preserve">
+  <style>
+    text { font-family: 'Menlo','Consolas','DejaVu Sans Mono',monospace; font-size: 20px; white-space: pre; }
+  </style>
+  <rect width="380" height="80" rx="6" fill="transparent"/>
+  <!-- O N (on-air lamp red) · gap · A I R (amber, fading out like a signal) -->
+  <!-- Row 1 -->
+  <text y="28"><tspan fill="#EF4444"> ░█▀▀▀█</tspan><tspan fill="#DC2626"> ░█▄─░█</tspan><tspan fill="#F97316">  ░█▀▀█</tspan><tspan fill="#F59E0B" opacity="0.85"> ▀█▀</tspan><tspan fill="#FBBF24" opacity="0.7"> ░█▀▀█</tspan></text>
+  <!-- Row 2 -->
+  <text y="52"><tspan fill="#EF4444"> ░█──░█</tspan><tspan fill="#DC2626"> ░█░█░█</tspan><tspan fill="#F97316">  ░█▄▄█</tspan><tspan fill="#F59E0B" opacity="0.85"> ░█─</tspan><tspan fill="#FBBF24" opacity="0.7"> ░█▄▄▀</tspan></text>
+  <!-- Row 3 -->
+  <text y="76"><tspan fill="#EF4444"> ░█▄▄▄█</tspan><tspan fill="#DC2626"> ░█──▀█</tspan><tspan fill="#F97316">  ░█─░█</tspan><tspan fill="#F59E0B" opacity="0.85"> ▄█▄</tspan><tspan fill="#FBBF24" opacity="0.7"> ░█─░█</tspan></text>
+</svg>
