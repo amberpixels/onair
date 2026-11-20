@@ -60,8 +60,13 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
    day one.
 5. **GitLab-first, Forge-abstract.** We only write the GitLab impl now, but behind
    the interface, so GitHub is a later drop-in, not a rewrite.
-6. **`/-/version` is a convention we ship helpers for**, not a hard requirement.
-   Adoption is copy-paste; absence degrades to the Green tier.
+6. **Real Live comes from conventions, not requirements.** For container
+   deploys the default is the standard image label
+   `org.opencontainers.image.revision`: two Dockerfile lines, no app code, and
+   it covers workers and bots with no HTTP surface. `/-/version` is the opt-in,
+   higher-fidelity probe we ship helpers for, because it proves the app
+   answers, not only that its container runs. Absence of both degrades to the
+   Green tier.
 7. **`command` is the universal Live provider - no per-platform adapters, ever.**
    Instead of onair knowing about k8s / AWS / Fly / Hetzner / Heroku, the config
    supplies an arbitrary command whose output *is* the answer to "what is live."
@@ -87,7 +92,7 @@ components:
     live:
       command: kubectl get deploy api -o jsonpath='{.spec.template.spec.containers[0].image}' # k8s
       # command: flyctl image show --json | jq -r .Tag                                        # fly.io
-      # command: ssh prod docker inspect app --format '{{index .Config.Labels "commit"}}'     # hetzner box
+      # command: ssh prod onair-live p44 app                                                  # compose host (contrib/compose-live)
       # command: heroku releases:info --json -a myapp | jq -r .description                    # heroku
 ```
 
@@ -105,6 +110,11 @@ components:
 - **two invocation shapes**, same contract: onair execs the configured
   `live.command` itself, and an ad-hoc pipe/flag form for one-offs:
   `kubectl ... | onair --live-ref -`.
+
+`contrib/compose-live/live.sh` is the reference command for Docker Compose
+hosts: it reads the revision label and the container's state and prints
+`{commit, state}`. Hosts install it at a pinned onair tag, so its output follows
+this contract's rule: fields are only ever added.
 
 ---
 
@@ -127,7 +137,9 @@ components:
    `Probed` confidence or its own `Reported` label (which would replace
    `ImageTag` in decision 2's enum)? For p44, where the deploy sets
    `IMAGE_TAG=$CI_COMMIT_SHORT_SHA`, a command reading that env var works from a
-   terminal, but the embedded admin route still wants the probe.
+   terminal, but the embedded admin route still wants the probe. The OCI
+   revision label (decision 6) replaces reading `IMAGE_TAG`, because it travels
+   with the image rather than the deploy's environment.
 5. ~~Attribution `auto` gate data source.~~ **Resolved as the leaning**:
    recent-history author set (via `Forge.Recent(branch, 50)`, an interface
    addition), with the alias map on top. Forge member list stays a possible

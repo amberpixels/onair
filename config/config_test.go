@@ -48,6 +48,29 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// The example shipped beside live.sh must keep loading as the schema changes.
+func TestLoadComposeLiveExample(t *testing.T) {
+	f, err := config.Load(filepath.Join("..", "contrib", "compose-live", "example.onair.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"web":    "ssh prod onair-live p44 web",
+		"worker": "ssh prod onair-live p44 worker",
+	}
+	for _, c := range f.Environments["prod"].Components {
+		if w, ok := want[c.Name]; ok {
+			if c.Live == nil || c.Live.Command != w {
+				t.Errorf("%s: live = %+v, want command %q", c.Name, c.Live, w)
+			}
+			delete(want, c.Name)
+		}
+	}
+	if len(want) > 0 {
+		t.Errorf("components missing from the example: %v", want)
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	f, err := config.Load(write(t, t.TempDir(), `
 forge: { repo: amberpixels/p44 }
