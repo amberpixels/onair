@@ -10,7 +10,7 @@ $ live.sh shop worker
 {"commit":"9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d","state":"running"}
 ```
 
-The output is onair's `command` provider contract (see `DESIGN.md`).
+The output follows onair's [`command` contract](../../docs/command-contract.md).
 
 ## 1. Stamp the image
 

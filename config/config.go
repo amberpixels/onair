@@ -60,7 +60,7 @@ type Component struct {
 // either.
 type LiveSource struct {
 	Probe   string `yaml:"probe"`   // /-/version URL
-	Command string `yaml:"command"` // stdout is the answer (see DESIGN.md)
+	Command string `yaml:"command"` // stdout is the answer (see docs/command-contract.md)
 	// Environment is a GitLab environment whose newest successful
 	// deployment is Live (Recorded confidence).
 	Environment string `yaml:"environment"`

@@ -169,13 +169,28 @@ report, err := onair.Collect(ctx, onair.Params{
 ```
 
 The JSON shape of `Report` is a public API and only changes additively.
-`DESIGN.md` holds the reasoning behind the tiers and the provider contracts.
 
 ## How It Works
 
 onair is read-only: it calls the GitLab API, runs your `command` sources and
 `git config user.email`, and never deploys or writes anything. A failing source
-never stops the report: that component falls back to Green, labeled as assumed.
+never stops the report. That component falls back to Green, labeled as assumed,
+and the error is printed as a note.
+
+A few decisions shape the rest:
+
+- **Green is not Live.** They match only when every deploy ships the latest
+  green commit and nothing stalls or rolls back. So Live is its own tier, and
+  Green stands in for it only with an `assumed` label.
+- **Confidence is a field, not a flag.** Every Live answer says how it is known,
+  so the report never claims more than its weakest source.
+- **No per-platform adapters.** `command` turns any CLI into a live source
+  ([contract](docs/command-contract.md)). Deployment records are a forge
+  feature, like pipelines, so they are the one built-in source besides the probe.
+- **Rendering is the host's job.** The core returns a `Report`, and the
+  terminal view and the JSON are two renderers of it.
+- **GitLab first, not GitLab only.** The forge is an interface, so GitHub can
+  be added without touching the core.
 
 ## License
 
