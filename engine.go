@@ -131,7 +131,8 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 			}
 			return cr
 		}
-		info.SHA, info.Confidence = green.SHA, Assumed
+		// The state described the container the provider saw, not Green.
+		info.SHA, info.Confidence, info.State = green.SHA, Assumed, ""
 	}
 	if info.Confidence == "" {
 		info.Confidence = Reported
@@ -142,7 +143,10 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 		// A bare SHA is still a report; just less to say about it.
 		ref = Ref{SHA: info.SHA}
 	}
-	lr := &LiveReport{CommitInfo: commitInfo(ref), Confidence: info.Confidence, BuiltAt: info.BuiltAt}
+	lr := &LiveReport{
+		CommitInfo: commitInfo(ref), Confidence: info.Confidence,
+		BuiltAt: info.BuiltAt, State: info.State,
+	}
 	if !green.IsZero() && !SameSHA(ref.SHA, green.SHA) {
 		if n, err := p.Forge.Behind(ctx, ref.SHA, green.SHA); err == nil {
 			lr.BehindGreen = n

@@ -89,7 +89,11 @@ components:
 
 - **stdout**: a commit SHA, or anything resolvable to one (tag, image ref with a
   SHA suffix) - resolution goes through `Forge.Resolve`, which already exists.
-  Optionally a small JSON `{commit, builtAt, version}` for richer data.
+  Optionally a small JSON `{commit, builtAt, state}` for richer data. `state`
+  is the container state: `running` and `healthy` mean serving; any other
+  value (`restarting`, `unhealthy`, `starting`, `exited`...) is shown as given
+  and marks the component as not serving, so a restart loop on a new image is
+  not reported as live. Without `state`, nothing changes.
 - **non-zero exit**: Live unavailable -> degrade to `Assumed = Green`, the
   existing fallback path. Nothing new.
 - **confidence**: user-asserted ground truth, so `Probed`-grade - or a distinct

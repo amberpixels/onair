@@ -34,6 +34,10 @@ func TestParseOutput(t *testing.T) {
 			want: onair.LiveInfo{SHA: "a1b2c3d", Confidence: onair.Reported}},
 		{name: "json contract", in: `{"commit":"a1b2c3d","builtAt":"2026-07-13T00:00:00Z"}`,
 			want: onair.LiveInfo{SHA: "a1b2c3d", BuiltAt: builtAt, Confidence: onair.Reported}},
+		{name: "json with state", in: `{"commit":"a1b2c3d","state":"restarting"}`,
+			want: onair.LiveInfo{SHA: "a1b2c3d", State: "restarting", Confidence: onair.Reported}},
+		{name: "json state trimmed", in: `{"commit":"a1b2c3d","state":"  Running "}`,
+			want: onair.LiveInfo{SHA: "a1b2c3d", State: "Running", Confidence: onair.Reported}},
 		{name: "json without commit", in: `{"version":"1.2.3"}`, err: true},
 		{name: "empty", in: "  \n ", err: true},
 	}

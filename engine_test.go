@@ -313,3 +313,39 @@ func TestCollectUnresolvableLiveStillReports(t *testing.T) {
 type fakeIdentity []string
 
 func (f fakeIdentity) ViewerEmails(context.Context) ([]string, error) { return f, nil }
+
+// A reported state rides into the report; the Assumed fallback drops it,
+// because the state described the container, not Green.
+func TestCollectState(t *testing.T) {
+	forge := &fakeForge{head: refHead, green: refHead}
+	r := collect(t, onair.Params{
+		Forge: forge, Attribution: onair.AttributionOff,
+		Components: []onair.Component{
+			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{SHA: refHead.SHA, State: "restarting"}}},
+			{Name: "assumed", Live: fakeLive{info: onair.LiveInfo{State: "exited", Confidence: onair.Assumed}}},
+			{Name: "plain", Live: fakeLive{info: onair.LiveInfo{SHA: refHead.SHA}}},
+		},
+	})
+
+	backend, assumed, plain := r.Components[0].Live, r.Components[1].Live, r.Components[2].Live
+	if backend.State != "restarting" || backend.Serving() {
+		t.Errorf("backend: expected state restarting and not serving, got %+v", backend)
+	}
+	if assumed.State != "" || !assumed.Serving() {
+		t.Errorf("assumed: state must be dropped, got %+v", assumed)
+	}
+	if plain.State != "" || !plain.Serving() {
+		t.Errorf("plain: expected no state and serving, got %+v", plain)
+	}
+}
+
+func TestServing(t *testing.T) {
+	for state, want := range map[string]bool{
+		"": true, "running": true, "healthy": true, " Healthy ": true,
+		"restarting": false, "unhealthy": false, "starting": false, "exited": false, "paused": false,
+	} {
+		if got := onair.Serving(state); got != want {
+			t.Errorf("Serving(%q) = %v, want %v", state, got, want)
+		}
+	}
+}
