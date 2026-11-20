@@ -38,9 +38,10 @@ whole point. So:
 - **Green** is the zero-config tier. Any forge with CI gives it, no app changes.
   When we can't probe the real running commit, we show Green **labeled as an
   assumption** ("Live (assumed = green)"), never as if it were ground truth.
-- **Live** is recovered by a **probe** when the app self-reports its build commit
-  (a `/-/version` endpoint, or the Vite bundle's stamped SHA). When present it
-  *wins*, and we can flag `green is 2 ahead of live -> deploy stalled`.
+- **Live** is recovered when the running artifact says what it is: the image's
+  OCI revision label read on the host, or the app's own `/-/version` endpoint
+  (see §5). When present it *wins*, and we can flag
+  `green is 2 ahead of live -> deploy stalled`.
 
 A given setup shows as many tiers as it can supply, and degrades gracefully with
 honest labels (onair principle #5).
@@ -109,7 +110,7 @@ type LiveProvider interface {
 Impls, in fidelity order:
 
 - **`probe`** - GET a `/-/version` endpoint returning `{commit, builtAt}`.
-  Highest fidelity. Needs the app to self-stamp (see §5).
+  Highest fidelity. Needs the app to self-stamp (see §5.2).
 - **`command`** - run a user-supplied command whose stdout is the answer (a SHA,
   a tag, an image ref - resolved via `Forge.Resolve`), or a JSON
   `{commit, builtAt, state}` where a `state` other than `running` / `healthy`
@@ -168,11 +169,43 @@ identities:
 
 ---
 
-## 5. The `/-/version` convention (opt-in, unlocks real Live)
+## 5. Getting a real Live tier
 
 Green-as-proxy is free but blind to stalls and rollbacks. Real Live needs the
-running artifact to say what it is. onair-go proposes a tiny convention and ships
-helpers so adopting it is copy-paste:
+running artifact to say what it is. There are two conventions; the first is the
+default for container deploys.
+
+### 5.1 The OCI revision label (default for containers)
+
+Stamp the commit into the image with the standard label: two Dockerfile lines
+(the build argument and the label, both in the final stage) and no app code, so
+it works for workers and bots that have no HTTP surface:
+
+```dockerfile
+ARG VERSION
+LABEL org.opencontainers.image.revision=$VERSION
+```
+
+```sh
+docker build --build-arg VERSION=$CI_COMMIT_SHA .
+```
+
+On a Docker Compose host, [`contrib/compose-live/live.sh`](contrib/compose-live)
+reads the label and the container's state and prints the `command` provider's
+JSON, so onair asks over SSH:
+
+```yaml
+live: { command: "ssh prod onair-live p44 worker" }
+```
+
+A restart-looping or unhealthy container is reported as not serving, even on
+the newest commit.
+
+### 5.2 The `/-/version` probe (optional, higher fidelity)
+
+The label proves which image a container runs; a `/-/version` endpoint proves
+the app inside answers. onair-go proposes a tiny convention and ships helpers
+so adopting it is copy-paste:
 
 - **Go backend**: a `buildinfo` package stamped via
   `-ldflags "-X .../buildinfo.Commit=$SHA -X .../buildinfo.BuiltAt=$TS"`, exposed
@@ -180,8 +213,8 @@ helpers so adopting it is copy-paste:
 - **Vite frontend**: a plugin that stamps `VITE_COMMIT_SHA` into the bundle and a
   served `/-/version` (or a `<meta>` tag) the probe can read.
 
-Both are optional. Without them onair-go still works at the Green tier; with them
-it tells the truth.
+Both conventions are optional. Without them onair-go still works at the Green
+tier; with them it tells the truth.
 
 ---
 
@@ -248,8 +281,8 @@ environments:
         live: { probe: "https://pieton.md/api/-/version" }
       - name: web
         live: { probe: "https://pieton.md/-/version" }
-      - name: worker   # no HTTP surface -> ask the host directly
-        live: { command: "ssh prod docker inspect worker --format '{{.Config.Image}}'" }
+      - name: worker   # no HTTP surface -> read the image label on the host (§5.1)
+        live: { command: "ssh prod onair-live p44 worker" }
   staging:
     environment: staging  # GitLab environment: its deployment records are Live
     components:           # for every component without a live source
@@ -283,8 +316,9 @@ amberpixels/onair       module github.com/amberpixels/onair
   render/               tty (lipgloss) + json renderers
   config/               .onair.yml loading
   cmd/onair/            CLI binary
-  contrib/buildinfo/    Go self-stamp helper (§5) - not built yet
-  contrib/vite/         Vite stamp plugin (§5) - not built yet
+  contrib/compose-live/ OCI label reader for Docker Compose hosts (§5.1)
+  contrib/buildinfo/    Go self-stamp helper (§5.2) - not built yet
+  contrib/vite/         Vite stamp plugin (§5.2) - not built yet
 ```
 
 Host apps import the core, wire providers, get a `Report`, render it. p44 is
