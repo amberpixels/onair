@@ -67,8 +67,10 @@ is the service name from `compose.yml`. `example.onair.yml` is a full config.
   runs and has one. onair counts `running` and `healthy` as serving and marks
   any other state, so a restart loop on a new image does not read as live.
 
-Exit codes: 2 for bad usage, 3 when no container matches, 4 when the label is
-missing or is not a plain revision. On any non-zero exit onair falls back to
+Exit codes: 2 for bad usage, 3 when no container matches, 4 when there is no
+usable revision label or state (the label is missing or not a plain revision,
+or docker reports a state that is not a plain token). On any non-zero exit
+onair falls back to
 `Live (assumed = green)`.
 
 Later versions of the script only add fields to its output, never change or

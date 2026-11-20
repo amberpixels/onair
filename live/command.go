@@ -2,12 +2,9 @@ package live
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/amberpixels/onair"
 )
@@ -40,8 +37,6 @@ func (c *Command) Live(ctx context.Context) (onair.LiveInfo, error) {
 	return ParseOutput(string(out))
 }
 
-var shaRe = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
-
 // ParseOutput applies the command output contract: a JSON object
 // {commit, builtAt, state}, or a single token that is a SHA, a tag, or an image ref
 // whose tag part is the answer. The same parser backs the CLI's pipe form
@@ -53,26 +48,19 @@ func ParseOutput(out string) (onair.LiveInfo, error) {
 	}
 
 	if strings.HasPrefix(s, "{") {
-		var v struct {
-			Commit  string `json:"commit"`
-			BuiltAt string `json:"builtAt"`
-			State   string `json:"state"`
-		}
-		if err := json.Unmarshal([]byte(s), &v); err != nil {
+		info, err := decodeVersion([]byte(s))
+		if err != nil {
 			return onair.LiveInfo{}, fmt.Errorf("command: bad JSON output: %w", err)
 		}
-		if v.Commit == "" {
+		if info.SHA == "" {
 			return onair.LiveInfo{}, fmt.Errorf(`command: JSON output has no "commit"`)
 		}
-		info := onair.LiveInfo{SHA: v.Commit, State: strings.TrimSpace(v.State), Confidence: onair.Reported}
-		if t, err := time.Parse(time.RFC3339, v.BuiltAt); err == nil {
-			info.BuiltAt = t
-		}
+		info.Confidence = onair.Reported
 		return info, nil
 	}
 
 	token := strings.Fields(firstLine(s))[0]
-	if !shaRe.MatchString(token) {
+	if !onair.LooksLikeSHA(token) {
 		// An image ref: the tag after the last ':' carries the commit
 		// (registry hosts may hold a ':' too, hence last).
 		if i := strings.LastIndexByte(token, ':'); i >= 0 && i < len(token)-1 {

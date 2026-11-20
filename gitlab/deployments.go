@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/amberpixels/onair"
@@ -35,24 +34,13 @@ type glDeployment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// deploymentsResult caches one environment's answer. Components often share a
-// deploy environment, so concurrent callers wait on one request.
-type deploymentsResult struct {
-	once sync.Once
-	info onair.LiveInfo
-	err  error
-}
-
+// deploymentLive caches one environment's computed answer, fallback lookup
+// included. Components often share a deploy environment, so concurrent callers
+// wait on one request.
 func (c *Client) deploymentLive(ctx context.Context, env string) (onair.LiveInfo, error) {
-	c.mu.Lock()
-	res, ok := c.deployments[env]
-	if !ok {
-		res = &deploymentsResult{}
-		c.deployments[env] = res
-	}
-	c.mu.Unlock()
-	res.once.Do(func() { res.info, res.err = c.fetchDeploymentLive(ctx, env) })
-	return res.info, res.err
+	return c.deployments.get(ctx, env, func() (onair.LiveInfo, error) {
+		return c.fetchDeploymentLive(ctx, env)
+	})
 }
 
 func (c *Client) fetchDeploymentLive(ctx context.Context, env string) (onair.LiveInfo, error) {
@@ -68,11 +56,11 @@ func (c *Client) fetchDeploymentLive(ctx context.Context, env string) (onair.Liv
 			return recorded(row.SHA, pending, failed), nil
 		case "running":
 			if pending == nil {
-				pending = &onair.Rollout{SHA: row.SHA, Status: onair.RolloutPending, At: row.CreatedAt}
+				pending = &onair.Rollout{SHA: row.SHA, Status: onair.RolloutPending, StartedAt: row.CreatedAt}
 			}
 		case "failed":
 			if failed == nil {
-				failed = &onair.Rollout{SHA: row.SHA, Status: onair.RolloutFailed, At: row.CreatedAt}
+				failed = &onair.Rollout{SHA: row.SHA, Status: onair.RolloutFailed, StartedAt: row.CreatedAt}
 			}
 		}
 		// canceled and skipped deploys never touched the host, and created or

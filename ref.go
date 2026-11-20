@@ -1,6 +1,7 @@
 package onair
 
 import (
+	"regexp"
 	"strings"
 	"time"
 )
@@ -35,6 +36,12 @@ func SameSHA(a, b string) bool {
 	}
 	return strings.HasPrefix(b, a)
 }
+
+var shaRe = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+
+// LooksLikeSHA reports whether s has the shape of a full or abbreviated
+// commit SHA (7 to 40 hex characters), as opposed to a tag or an image ref.
+func LooksLikeSHA(s string) bool { return shaRe.MatchString(s) }
 
 // ShortSHA abbreviates a SHA for display.
 func ShortSHA(sha string) string {

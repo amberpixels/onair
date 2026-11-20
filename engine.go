@@ -15,7 +15,9 @@ type Params struct {
 	Environment string
 	Forge       Forge
 	ForgeInfo   ForgeInfo
-	Branch      string // default "main"
+	// Branch is the tracked branch, default "main"; Collect copies it into
+	// the report's Forge.Branch.
+	Branch      string
 	Components  []Component
 	Identity    Identity        // nil -> no attribution
 	Attribution AttributionMode // default AttributionAuto
@@ -56,9 +58,7 @@ func Collect(ctx context.Context, p Params) (*Report, error) {
 		Forge:       p.ForgeInfo,
 		Attribution: p.Attribution,
 	}
-	if r.Forge.Branch == "" {
-		r.Forge.Branch = p.Branch
-	}
+	r.Forge.Branch = p.Branch
 
 	var head, green Ref
 	if head, err = p.Forge.Head(ctx, p.Branch); err != nil {
@@ -134,8 +134,9 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 			}
 			return cr
 		}
-		// The state described the container the provider saw, not Green.
-		info.SHA, info.Confidence, info.State = green.SHA, Assumed, ""
+		// State and Rollout described the provider's own Live, not Green: a
+		// rollout beside Green may be older than it, or Green itself.
+		info.SHA, info.Confidence, info.State, info.Rollout = green.SHA, Assumed, "", nil
 	}
 	if info.Confidence == "" {
 		info.Confidence = Reported
@@ -147,7 +148,7 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 		BuiltAt: info.BuiltAt, State: info.State,
 	}
 	if ro := info.Rollout; ro != nil && ro.SHA != "" {
-		lr.Rollout = &RolloutReport{CommitInfo: commitInfo(p.resolve(ctx, ro.SHA)), Status: ro.Status, At: ro.At}
+		lr.Rollout = &RolloutReport{CommitInfo: commitInfo(p.resolve(ctx, ro.SHA)), Status: ro.Status, StartedAt: ro.StartedAt}
 	}
 	if !green.IsZero() && !SameSHA(ref.SHA, green.SHA) {
 		if n, err := p.Forge.Behind(ctx, ref.SHA, green.SHA); err == nil {
@@ -164,11 +165,15 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 }
 
 // resolve looks a commit-ish up through the forge. A bare SHA is still a
-// report, just with less to say about it.
+// report, just with less to say about it, and still links to the forge; a tag
+// or image suffix gets no link, because a commit URL built from it would 404.
 func (p Params) resolve(ctx context.Context, sha string) Ref {
 	ref, err := p.Forge.Resolve(ctx, sha)
 	if err != nil {
-		return Ref{SHA: sha}
+		ref = Ref{SHA: sha}
+		if LooksLikeSHA(sha) {
+			ref.URL = p.Forge.CommitURL(sha)
+		}
 	}
 	return ref
 }

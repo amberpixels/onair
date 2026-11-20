@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/amberpixels/onair"
@@ -45,5 +46,18 @@ func TestBuildComponentsPrecedence(t *testing.T) {
 	}
 	if s, ok := byName["piped"].(live.Static); !ok || s.Info.SHA != "a1b2c3d" {
 		t.Errorf("-live-ref should win over everything, got %#v", byName["piped"])
+	}
+}
+
+func TestBuildComponentsRejectsUnusedComponent(t *testing.T) {
+	forge := gitlab.NewClient("", "amberpixels/p44", "")
+	env := config.Environment{Components: []config.Component{{Name: "backend"}, {Name: "web"}}}
+
+	_, err := buildComponents(env, forge, "a1b2c3d", "backnd")
+	if err == nil || !strings.Contains(err.Error(), `"backnd"`) || !strings.Contains(err.Error(), "backend, web") {
+		t.Errorf("an unknown -component should fail naming the configured ones, got %v", err)
+	}
+	if _, err := buildComponents(env, forge, "", "web"); err == nil {
+		t.Error("-component without -live-ref should fail")
 	}
 }

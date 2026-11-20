@@ -86,10 +86,7 @@ func TTY(w io.Writer, r *onair.Report, opts TTYOptions) error {
 	// the multi-tier breakdown is only worth its space when tiers disagree.
 	if live, ok := converged(r); ok {
 		p.deployedRow(live)
-		for _, e := range r.Errors {
-			p.linef("")
-			p.linef("%s %s", p.s.warn.Render("!"), p.s.dim.Render(e))
-		}
+		p.errorNotes(r)
 		return p.err
 	}
 
@@ -119,12 +116,26 @@ func TTY(w io.Writer, r *onair.Report, opts TTYOptions) error {
 	p.linef("")
 
 	p.liveRows(r)
+	p.errorNotes(r)
+	return p.err
+}
 
-	for _, e := range r.Errors {
+// errorNotes prints the report's degradation notes, then each component's
+// provider error: a provider that failed still has an assumed Live, so the
+// rows alone would read as a healthy deploy.
+func (p *printer) errorNotes(r *onair.Report) {
+	note := func(e string) {
 		p.linef("")
 		p.linef("%s %s", p.s.warn.Render("!"), p.s.dim.Render(e))
 	}
-	return p.err
+	for _, e := range r.Errors {
+		note(e)
+	}
+	for _, c := range r.Components {
+		if c.Error != "" {
+			note(c.Name + ": " + c.Error)
+		}
+	}
 }
 
 func (p *printer) liveRows(r *onair.Report) {
@@ -132,11 +143,6 @@ func (p *printer) liveRows(r *onair.Report) {
 	leader := leaderComponent(r)
 	if leader == nil || leader.Live == nil {
 		p.linef("%s %s", label, p.s.dim.Render("unknown"))
-		for _, c := range r.Components {
-			if c.Error != "" {
-				p.linef("  %s %s", c.Name, p.s.dim.Render("("+c.Error+")"))
-			}
-		}
 		return
 	}
 
@@ -151,13 +157,8 @@ func (p *printer) liveRows(r *onair.Report) {
 	if lead.BehindHead > 0 {
 		suffix = append(suffix, p.s.warn.Render(fmt.Sprintf("%d behind %s", lead.BehindHead, r.Forge.Branch)))
 	}
-	switch lead.Confidence {
-	case onair.Assumed:
-		suffix = append(suffix, p.s.dim.Render("(assumed = green)"))
-	case onair.Reported:
-		suffix = append(suffix, p.s.dim.Render("(reported)"))
-	case onair.Recorded:
-		suffix = append(suffix, p.s.dim.Render("(recorded)"))
+	if l := rowConfidence(lead.Confidence); l != "" {
+		suffix = append(suffix, p.s.dim.Render(l))
 	}
 	if lead.Mine {
 		suffix = append(suffix, p.s.mine.Render("✓ yours"))
@@ -165,12 +166,6 @@ func (p *printer) liveRows(r *onair.Report) {
 	p.commitRow(label, &lead.CommitInfo, strings.Join(suffix, " · "))
 
 	if len(r.Components) > 1 {
-		allAssumed := true
-		for _, c := range r.Components {
-			if c.Live != nil && c.Live.Confidence != onair.Assumed {
-				allAssumed = false
-			}
-		}
 		var cells []string
 		for _, c := range r.Components {
 			if c.Live == nil {
@@ -181,13 +176,10 @@ func (p *printer) liveRows(r *onair.Report) {
 			if mark := p.stateMark(c.Live); mark != "" {
 				cell += " " + mark
 			}
-			switch {
-			case c.Live.Confidence == onair.Assumed && !allAssumed:
-				cell += " " + p.s.dim.Render("(assumed)")
-			case c.Live.Confidence.Weaker(lead.Confidence):
-				// The Live row labels only the leader, so a weaker claim
-				// beside it carries its own label.
-				cell += " " + p.s.dim.Render("("+string(c.Live.Confidence)+")")
+			// The Live row labels only the leader's claim, so a cell that
+			// knows more or less than the leader carries its own label.
+			if c.Live.Confidence != lead.Confidence {
+				cell += " " + p.s.dim.Render(cellConfidence(c.Live.Confidence))
 			}
 			cells = append(cells, cell)
 		}
@@ -229,12 +221,12 @@ func (p *printer) rolloutRows(r *onair.Report) {
 		case onair.RolloutPending:
 			line = p.s.warn.Render("⟳ deploying") + " " + sha
 		case onair.RolloutFailed:
-			line = p.s.warn.Render("✗ deploy of") + " " + sha + " " + p.s.warn.Render("failed")
+			line = p.s.bad.Render("✗ deploy of") + " " + sha + " " + p.s.bad.Render("failed")
 		default:
 			line = string(ro.Status) + " " + sha
 		}
-		if !ro.At.IsZero() {
-			line += " " + p.s.dim.Render("("+ago(p.now.Sub(ro.At))+")")
+		if !ro.StartedAt.IsZero() {
+			line += " " + p.s.dim.Render("("+ago(p.now.Sub(ro.StartedAt))+")")
 		}
 		if len(r.Components) > 1 {
 			line = c.Name + " " + line
@@ -278,17 +270,33 @@ func converged(r *onair.Report) (*onair.LiveReport, bool) {
 // so - honesty over a cleaner line.
 func (p *printer) deployedRow(live *onair.LiveReport) {
 	suffix := []string{p.s.good.Render("★ current")}
-	switch live.Confidence {
-	case onair.Assumed:
-		suffix = append(suffix, p.s.dim.Render("(assumed = green)"))
-	case onair.Recorded:
-		suffix = append(suffix, p.s.dim.Render("(recorded)"))
+	if l := rowConfidence(live.Confidence); l != "" {
+		suffix = append(suffix, p.s.dim.Render(l))
 	}
 	if live.Mine {
 		suffix = append(suffix, p.s.mine.Render("✓ yours"))
 	}
 	p.commitRow(p.s.green.Render("Deployed:"), &live.CommitInfo, strings.Join(suffix, " · "))
 	p.subjectRow(&live.CommitInfo)
+}
+
+// rowConfidence labels a Live or Deployed row: nothing for Probed, the
+// strongest claim, and "assumed = green" because Green stands in for the
+// whole deploy.
+func rowConfidence(c onair.LiveConfidence) string {
+	switch c {
+	case onair.Probed:
+		return ""
+	case onair.Assumed:
+		return "(assumed = green)"
+	}
+	return cellConfidence(c)
+}
+
+// cellConfidence labels one component's cell, Probed included, since a cell is
+// labeled only when it differs from the row.
+func cellConfidence(c onair.LiveConfidence) string {
+	return "(" + string(c) + ")"
 }
 
 // stateMark flags a component that is not serving with its reported state,
