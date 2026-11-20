@@ -111,7 +111,9 @@ Impls, in fidelity order:
 - **`probe`** - GET a `/-/version` endpoint returning `{commit, builtAt}`.
   Highest fidelity. Needs the app to self-stamp (see §5).
 - **`command`** - run a user-supplied command whose stdout is the answer (a SHA,
-  a tag, an image ref - resolved via `Forge.Resolve`). The universal adapter:
+  a tag, an image ref - resolved via `Forge.Resolve`), or a JSON
+  `{commit, builtAt, state}` where a `state` other than `running` / `healthy`
+  marks the component as not serving. The universal adapter:
   kubectl, flyctl, `ssh + docker inspect`, even the heroku CLI - all one seam,
   zero adapters written by us (DESIGN decision 7).
 - **`assumed`** - fall back to Green, flagged `LiveConfidence = Assumed`.
@@ -209,7 +211,8 @@ renderer, p44's admin popover is another. Shape (draft):
   "components": [
     { "name": "backend", "live": { "sha": "9e8d7c6", "confidence": "probed",
       "builtAt": "...", "behindGreen": 1, "behindHead": 1, "mine": true } },
-    { "name": "web", "live": { "sha": "9e8d7c6", "confidence": "probed" } }
+    { "name": "web", "live": { "sha": "9e8d7c6", "confidence": "reported",
+      "state": "restarting" } }
   ],
   "drift": null,
   "attribution": "auto"

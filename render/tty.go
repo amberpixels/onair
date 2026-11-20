@@ -30,6 +30,7 @@ type styles struct {
 	sha     lipgloss.Style
 	dim     lipgloss.Style
 	warn    lipgloss.Style
+	bad     lipgloss.Style
 	good    lipgloss.Style
 	mine    lipgloss.Style
 }
@@ -52,6 +53,7 @@ func newStyles(w io.Writer, color bool) styles {
 		sha:     ren.NewStyle().Bold(true),
 		dim:     ren.NewStyle().Faint(true),
 		warn:    ren.NewStyle().Foreground(lipgloss.Color("11")),
+		bad:     ren.NewStyle().Foreground(lipgloss.Color("9")),
 		good:    ren.NewStyle().Foreground(lipgloss.Color("10")),
 		mine:    ren.NewStyle().Foreground(lipgloss.Color("14")),
 	}
@@ -140,6 +142,9 @@ func (p *printer) liveRows(r *onair.Report) {
 
 	lead := leader.Live
 	var suffix []string
+	if mark := p.stateMark(lead); mark != "" {
+		suffix = append(suffix, mark)
+	}
 	if lead.BehindGreen > 0 {
 		suffix = append(suffix, p.s.warn.Render(fmt.Sprintf("↓ %d behind green", lead.BehindGreen)))
 	}
@@ -166,27 +171,45 @@ func (p *printer) liveRows(r *onair.Report) {
 		}
 		var cells []string
 		for _, c := range r.Components {
-			switch {
-			case c.Live == nil:
+			if c.Live == nil {
 				cells = append(cells, fmt.Sprintf("%s %s", c.Name, p.s.dim.Render("unknown")))
-			case c.Live.Confidence == onair.Assumed && !allAssumed:
-				cells = append(cells, fmt.Sprintf("%s %s %s",
-					c.Name, p.s.sha.Render(onair.ShortSHA(c.Live.SHA)), p.s.dim.Render("(assumed)")))
-			default:
-				cells = append(cells, fmt.Sprintf("%s %s", c.Name, p.s.sha.Render(onair.ShortSHA(c.Live.SHA))))
+				continue
+			}
+			cell := fmt.Sprintf("%s %s", c.Name, p.s.sha.Render(onair.ShortSHA(c.Live.SHA)))
+			if mark := p.stateMark(c.Live); mark != "" {
+				cell += " " + mark
+			}
+			if c.Live.Confidence == onair.Assumed && !allAssumed {
+				cell += " " + p.s.dim.Render("(assumed)")
+			}
+			cells = append(cells, cell)
+		}
+		// "in sync" speaks for the whole deploy, so it needs every component
+		// on one commit and serving it.
+		var status []string
+		if r.Drift != nil {
+			status = append(status, p.s.warn.Render("⚠ "+r.Drift.Message))
+		}
+		var down []string
+		for _, c := range r.Components {
+			if !c.Live.Serving() {
+				down = append(down, c.Name)
 			}
 		}
-		status := p.s.good.Render("in sync")
-		if r.Drift != nil {
-			status = p.s.warn.Render("⚠ " + r.Drift.Message)
+		if len(down) > 0 {
+			status = append(status, p.s.bad.Render("✗ "+strings.Join(down, ", ")+" not serving"))
 		}
-		p.linef("  %s   %s", strings.Join(cells, " · "), status)
+		if len(status) == 0 {
+			status = append(status, p.s.good.Render("in sync"))
+		}
+		p.linef("  %s   %s", strings.Join(cells, " · "), strings.Join(status, " · "))
 	}
 	p.subjectRow(&lead.CommitInfo)
 }
 
 // converged reports the single deployed commit when every known tier agrees on
-// it - HEAD == Green == every component's Live, with no cross-component drift.
+// it - HEAD == Green == every component's Live, with no cross-component drift
+// and every component serving (a restart loop on HEAD is not "current").
 // That is the signal to collapse the report to one line. It returns the leader
 // Live (any component; they all share the SHA) so the caller keeps its
 // confidence and "yours" flag.
@@ -203,7 +226,7 @@ func converged(r *onair.Report) (*onair.LiveReport, bool) {
 	var leader *onair.LiveReport
 	for i := range r.Components {
 		c := &r.Components[i]
-		if c.Live == nil || !onair.SameSHA(c.Live.SHA, r.Head.SHA) {
+		if c.Live == nil || !onair.SameSHA(c.Live.SHA, r.Head.SHA) || !c.Live.Serving() {
 			return nil, false
 		}
 		if leader == nil {
@@ -226,6 +249,15 @@ func (p *printer) deployedRow(live *onair.LiveReport) {
 	}
 	p.commitRow(p.s.green.Render("Deployed:"), &live.CommitInfo, strings.Join(suffix, " · "))
 	p.subjectRow(&live.CommitInfo)
+}
+
+// stateMark flags a component that is not serving with its reported state,
+// e.g. "✗ restarting"; serving or unknown states get no mark.
+func (p *printer) stateMark(l *onair.LiveReport) string {
+	if l.Serving() {
+		return ""
+	}
+	return p.s.bad.Render("✗ " + l.State)
 }
 
 // commitRow prints a tier's main line: label, sha, age, author, suffix.

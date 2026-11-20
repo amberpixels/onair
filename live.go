@@ -2,6 +2,7 @@ package onair
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -26,9 +27,23 @@ const (
 type LiveInfo struct {
 	// SHA is a full or short commit SHA, or anything the Forge can resolve
 	// to one (a tag, an image-ref suffix).
-	SHA        string
-	BuiltAt    time.Time // zero when the provider cannot know
+	SHA     string
+	BuiltAt time.Time // zero when the provider cannot know
+	// State is the container state as the provider reported it, verbatim.
+	// Empty (unknown), "running" and "healthy" mean serving; see Serving.
+	State      string
 	Confidence LiveConfidence
+}
+
+// Serving reports whether a provider-reported state means the component
+// serves traffic. An unknown (empty) state counts as serving, so providers
+// that report no state render as before.
+func Serving(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "", "running", "healthy":
+		return true
+	}
+	return false
 }
 
 // LiveProvider answers what is actually running for one component. A nil

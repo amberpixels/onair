@@ -56,10 +56,19 @@ type ComponentReport struct {
 // Green is M behind HEAD - never collapse them.
 type LiveReport struct {
 	CommitInfo
-	Confidence  LiveConfidence `json:"confidence"`
-	BuiltAt     time.Time      `json:"builtAt,omitzero"`
-	BehindGreen int            `json:"behindGreen,omitempty"`
-	BehindHead  int            `json:"behindHead,omitempty"`
+	Confidence LiveConfidence `json:"confidence"`
+	BuiltAt    time.Time      `json:"builtAt,omitzero"`
+	// State is the provider-reported container state, absent when unknown or
+	// when Live is assumed from Green.
+	State       string `json:"state,omitempty"`
+	BehindGreen int    `json:"behindGreen,omitempty"`
+	BehindHead  int    `json:"behindHead,omitempty"`
+}
+
+// Serving reports whether this Live is serving traffic: true unless the
+// provider reported a state other than running or healthy.
+func (l *LiveReport) Serving() bool {
+	return l == nil || Serving(l.State)
 }
 
 // Drift flags components that report different Live commits when they should

@@ -131,3 +131,67 @@ func TestJSON(t *testing.T) {
 		t.Errorf("JSON must not leak emails:\n%s", buf.String())
 	}
 }
+
+// A component in a restart loop on HEAD is not "current": the report keeps
+// the full breakdown and marks the component with its state.
+func TestTTYNotServing(t *testing.T) {
+	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
+	r := &onair.Report{
+		Project: "p44", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Head:  &head,
+		Green: &onair.GreenInfo{CommitInfo: head},
+		Components: []onair.ComponentReport{
+			{Name: "backend", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Reported, State: "restarting"}},
+			{Name: "web", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Reported, State: "running"}},
+		},
+	}
+
+	var buf strings.Builder
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{
+		"HEAD", "Green", "Live",
+		"backend 6a9af3d ✗ restarting · web 6a9af3d   ✗ backend not serving",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	for _, absent := range []string{"★ current", "in sync"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("a non-serving component must not read as %q:\n%s", absent, out)
+		}
+	}
+	if strings.Contains(out, "✗ running") {
+		t.Errorf("a serving state must not be marked:\n%s", out)
+	}
+}
+
+func TestJSONState(t *testing.T) {
+	r := report()
+	r.Components[0].Live.State = "unhealthy"
+
+	var buf strings.Builder
+	if err := render.JSON(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Components []struct {
+			Live map[string]any `json:"live"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal([]byte(buf.String()), &v); err != nil {
+		t.Fatal(err)
+	}
+	if got := v.Components[0].Live["state"]; got != "unhealthy" {
+		t.Errorf("backend state = %v, want unhealthy", got)
+	}
+	if _, ok := v.Components[1].Live["state"]; ok {
+		t.Errorf("unknown state must be omitted: %v", v.Components[1].Live)
+	}
+}

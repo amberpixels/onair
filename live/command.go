@@ -19,7 +19,7 @@ import (
 // ourselves.
 //
 // Contract: stdout is a commit SHA or anything resolvable to one (a tag, an
-// image ref whose tag is the SHA), or a JSON object {commit, builtAt}.
+// image ref whose tag is the SHA), or a JSON object {commit, builtAt, state}.
 // A non-zero exit means Live is unavailable - the engine degrades to
 // Assumed = Green.
 type Command struct {
@@ -43,7 +43,7 @@ func (c *Command) Live(ctx context.Context) (onair.LiveInfo, error) {
 var shaRe = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
 
 // ParseOutput applies the command output contract: a JSON object
-// {commit, builtAt}, or a single token that is a SHA, a tag, or an image ref
+// {commit, builtAt, state}, or a single token that is a SHA, a tag, or an image ref
 // whose tag part is the answer. The same parser backs the CLI's pipe form
 // (`kubectl ... | onair --live-ref -`).
 func ParseOutput(out string) (onair.LiveInfo, error) {
@@ -56,6 +56,7 @@ func ParseOutput(out string) (onair.LiveInfo, error) {
 		var v struct {
 			Commit  string `json:"commit"`
 			BuiltAt string `json:"builtAt"`
+			State   string `json:"state"`
 		}
 		if err := json.Unmarshal([]byte(s), &v); err != nil {
 			return onair.LiveInfo{}, fmt.Errorf("command: bad JSON output: %w", err)
@@ -63,7 +64,7 @@ func ParseOutput(out string) (onair.LiveInfo, error) {
 		if v.Commit == "" {
 			return onair.LiveInfo{}, fmt.Errorf(`command: JSON output has no "commit"`)
 		}
-		info := onair.LiveInfo{SHA: v.Commit, Confidence: onair.Reported}
+		info := onair.LiveInfo{SHA: v.Commit, State: strings.TrimSpace(v.State), Confidence: onair.Reported}
 		if t, err := time.Parse(time.RFC3339, v.BuiltAt); err == nil {
 			info.BuiltAt = t
 		}
