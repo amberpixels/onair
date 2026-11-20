@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuildComponentsPrecedence(t *testing.T) {
-	forge := gitlab.NewClient("", "amberpixels/p44", "")
+	forge := gitlab.NewClient("", "acme/shop", "")
 	env := config.Environment{
 		Environment: "production",
 		Components: []config.Component{
@@ -50,7 +50,7 @@ func TestBuildComponentsPrecedence(t *testing.T) {
 }
 
 func TestBuildComponentsRejectsUnusedComponent(t *testing.T) {
-	forge := gitlab.NewClient("", "amberpixels/p44", "")
+	forge := gitlab.NewClient("", "acme/shop", "")
 	env := config.Environment{Components: []config.Component{{Name: "backend"}, {Name: "web"}}}
 
 	_, err := buildComponents(env, forge, "a1b2c3d", "backnd")

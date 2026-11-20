@@ -88,7 +88,7 @@ func TestLiveSuccess(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, code, _ := run(t, tt.containers, "p44", "worker")
+			stdout, stderr, code, _ := run(t, tt.containers, "shop", "worker")
 			if code != 0 {
 				t.Fatalf("exit %d, stderr %q", code, stderr)
 			}
@@ -108,14 +108,14 @@ func TestLiveSuccess(t *testing.T) {
 }
 
 func TestLiveFilters(t *testing.T) {
-	_, stderr, code, calls := run(t, []container{{"c1", "running", "running||" + sha}}, "p44", "worker")
+	_, stderr, code, calls := run(t, []container{{"c1", "running", "running||" + sha}}, "shop", "worker")
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
 	ps, _, _ := strings.Cut(calls, "\n")
 	for _, want := range []string{
 		"ps -a ",
-		"label=com.docker.compose.project=p44",
+		"label=com.docker.compose.project=shop",
 		"label=com.docker.compose.service=worker",
 		"label=com.docker.compose.oneoff=False",
 	} {
@@ -132,13 +132,13 @@ func TestLiveFailures(t *testing.T) {
 		args       []string
 		code       int
 	}{
-		{"bad usage", nil, []string{"p44"}, 2},
-		{"no container", nil, []string{"p44", "worker"}, 3},
-		{"no label", []container{{"c1", "running", "running||"}}, []string{"p44", "worker"}, 4},
-		{"label missing from map", []container{{"c1", "running", "running||<no value>"}}, []string{"p44", "worker"}, 4},
-		{"label with a quote", []container{{"c1", "running", `running||abc"def`}}, []string{"p44", "worker"}, 4},
-		{"label with a separator", []container{{"c1", "running", "running||abc|def"}}, []string{"p44", "worker"}, 4},
-		{"unexpected state", []container{{"c1", "running", "run ning||" + sha}}, []string{"p44", "worker"}, 4},
+		{"bad usage", nil, []string{"shop"}, 2},
+		{"no container", nil, []string{"shop", "worker"}, 3},
+		{"no label", []container{{"c1", "running", "running||"}}, []string{"shop", "worker"}, 4},
+		{"label missing from map", []container{{"c1", "running", "running||<no value>"}}, []string{"shop", "worker"}, 4},
+		{"label with a quote", []container{{"c1", "running", `running||abc"def`}}, []string{"shop", "worker"}, 4},
+		{"label with a separator", []container{{"c1", "running", "running||abc|def"}}, []string{"shop", "worker"}, 4},
+		{"unexpected state", []container{{"c1", "running", "run ning||" + sha}}, []string{"shop", "worker"}, 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

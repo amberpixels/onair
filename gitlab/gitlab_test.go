@@ -19,13 +19,13 @@ const commitJSON = `{
 	"author_name": "Alice",
 	"author_email": "alice@example.com",
 	"created_at": "2026-07-13T08:00:00Z",
-	"web_url": "https://gitlab.test/amberpixels/p44/-/commit/a1b2c3d"
+	"web_url": "https://gitlab.test/acme/shop/-/commit/a1b2c3d"
 }`
 
 func newClient(t *testing.T) *gitlab.Client {
 	t.Helper()
 	mux := http.NewServeMux()
-	project := "/api/v4/projects/amberpixels%2Fp44"
+	project := "/api/v4/projects/acme%2Fshop"
 	mux.HandleFunc(project+"/repository/commits", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("ref_name") != "main" {
 			http.NotFound(w, r)
@@ -53,7 +53,7 @@ func newClient(t *testing.T) *gitlab.Client {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	// The raw path must stay escaped (%2F); the client relies on that.
-	return gitlab.NewClient(srv.URL, "amberpixels/p44", "secret")
+	return gitlab.NewClient(srv.URL, "acme/shop", "secret")
 }
 
 func TestHead(t *testing.T) {
@@ -90,11 +90,11 @@ func TestBehind(t *testing.T) {
 }
 
 func TestURLs(t *testing.T) {
-	client := gitlab.NewClient("", "amberpixels/p44", "")
-	if got := client.CommitURL("a1b2c3d"); got != "https://gitlab.com/amberpixels/p44/-/commit/a1b2c3d" {
+	client := gitlab.NewClient("", "acme/shop", "")
+	if got := client.CommitURL("a1b2c3d"); got != "https://gitlab.com/acme/shop/-/commit/a1b2c3d" {
 		t.Error(got)
 	}
-	if got := client.RequestURL("1234"); got != "https://gitlab.com/amberpixels/p44/-/merge_requests/1234" {
+	if got := client.RequestURL("1234"); got != "https://gitlab.com/acme/shop/-/merge_requests/1234" {
 		t.Error(got)
 	}
 	if got := client.Host(); got != "gitlab.com" {
@@ -108,7 +108,7 @@ func deploymentsClient(t *testing.T, window, success string) (*gitlab.Client, *i
 	t.Helper()
 	calls := 0
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v4/projects/amberpixels%2Fp44/deployments", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v4/projects/acme%2Fshop/deployments", func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		q := r.URL.Query()
 		if q.Get("environment") != "production" || q.Get("order_by") != "id" || q.Get("sort") != "desc" {
@@ -123,7 +123,7 @@ func deploymentsClient(t *testing.T, window, success string) (*gitlab.Client, *i
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return gitlab.NewClient(srv.URL, "amberpixels/p44", ""), &calls
+	return gitlab.NewClient(srv.URL, "acme/shop", ""), &calls
 }
 
 func TestDeployments(t *testing.T) {
@@ -211,7 +211,7 @@ func TestResolveMemo(t *testing.T) {
 	calls := make(chan struct{}, 16)
 	release := make(chan struct{})
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v4/projects/amberpixels%2Fp44/repository/commits/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v4/projects/acme%2Fshop/repository/commits/", func(w http.ResponseWriter, r *http.Request) {
 		calls <- struct{}{}
 		select {
 		case <-release:
@@ -222,7 +222,7 @@ func TestResolveMemo(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	client := gitlab.NewClient(srv.URL, "amberpixels/p44", "")
+	client := gitlab.NewClient(srv.URL, "acme/shop", "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { <-calls; cancel() }()

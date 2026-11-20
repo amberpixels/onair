@@ -1,8 +1,8 @@
 # .onair.yml for a Docker Compose deploy on one host. Each component asks
 # the host over SSH which commit its container runs, through live.sh
 # installed there as `onair-live` (see README.md next to this file).
-project: p44
-forge: { kind: gitlab, repo: amberpixels/p44, branch: main }
+project: shop
+forge: { kind: gitlab, repo: acme/shop, branch: main }
 attribution: auto
 environments:
   prod:
@@ -10,8 +10,8 @@ environments:
       # The /-/version probe, where the app serves one, also proves the app
       # answers; it can sit beside components read from the label.
       - name: backend
-        live: { probe: "https://p44.example/api/-/version" }
+        live: { probe: "https://shop.example/api/-/version" }
       - name: web
-        live: { command: "ssh prod onair-live p44 web" }
+        live: { command: "ssh prod onair-live shop web" }
       - name: worker
-        live: { command: "ssh prod onair-live p44 worker" }
+        live: { command: "ssh prod onair-live shop worker" }

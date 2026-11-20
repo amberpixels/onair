@@ -33,7 +33,7 @@ type CommitInfo struct {
 	URL         string    `json:"url,omitempty"`
 	Request     string    `json:"request,omitempty"`    // e.g. "!1234"
 	RequestURL  string    `json:"requestUrl,omitempty"` // MR / PR link
-	TaskID      string    `json:"taskId,omitempty"`     // e.g. "WS-123"
+	TaskID      string    `json:"taskId,omitempty"`     // e.g. "PROJ-123"
 	TaskURL     string    `json:"taskUrl,omitempty"`
 	Mine        bool      `json:"mine,omitempty"`
 }

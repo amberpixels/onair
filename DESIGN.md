@@ -2,7 +2,7 @@
 
 Companion to `README.md` (the README-driven front page). This file is the
 scratchpad: why the design is shaped this way, how it maps to the Ruby gem, what
-is still undecided, and the plan to validate it with p44.
+is still undecided, and the plan to validate it with a first consumer app.
 
 Status: **v1 implemented** (core + gitlab forge +
 probe/command/environment/assumed + tty/json render + CLI, all tested). Open questions below are marked resolved
@@ -72,7 +72,7 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
    answers, not only that its container runs. Absence of both degrades to the
    Green tier.
 7. **`command` is the universal Live provider - no per-platform adapters, ever.**
-   Instead of onair knowing about k8s / AWS / Fly / Hetzner / Heroku, the config
+   Instead of onair knowing about k8s / AWS / Fly / bare VMs / Heroku, the config
    supplies an arbitrary command whose output *is* the answer to "what is live."
    Same pattern as git credential helpers, kubectl exec plugins, Terraform's
    `external` data source. Litmus test: Ruby onair's entire `Platform::Heroku`
@@ -80,7 +80,7 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
    command - if the abstraction absorbs the original tool's only adapter, it is
    general enough. This does **not** replace the probe: `command` assumes a
    machine with the CLI and credentials (kubectl context, SSH keys), which the
-   embedded/library case (p44 admin route running inside the backend) does not
+   embedded/library case (an admin route running inside the backend) does not
    have. Provider lineup: **command** (universal CLI adapter), **probe**
    (embedded / `/-/version` convention), **environment** (the forge's
    deployment records), **assumed** (fallback).
@@ -97,7 +97,7 @@ components:
     live:
       command: kubectl get deploy api -o jsonpath='{.spec.template.spec.containers[0].image}' # k8s
       # command: flyctl image show --json | jq -r .Tag                                        # fly.io
-      # command: ssh prod onair-live p44 app                                                  # compose host (contrib/compose-live)
+      # command: ssh prod onair-live shop app                                                 # compose host (contrib/compose-live)
       # command: heroku releases:info --json -a myapp | jq -r .description                    # heroku
 ```
 
@@ -123,7 +123,7 @@ this contract's rule: fields are only ever added.
 
 ---
 
-## Open questions (need Eugene's call)
+## Open questions (need a decision)
 
 1. ~~Naming.~~ **Resolved by the repo itself**: module `github.com/amberpixels/onair`
    (this repo - the name was reserved for exactly this), binary `onair`. The $PATH
@@ -140,7 +140,7 @@ this contract's rule: fields are only ever added.
    the compose `IMAGE_TAG` - all are just whatever command the user configures,
    not adapters we write. **Resolved by `Reported`**: command output gets its
    own confidence, ranked below `Probed`, and `ImageTag` is gone from decision
-   2's enum. For p44, where the deploy sets
+   2's enum. For an app whose deploy sets
    `IMAGE_TAG=$CI_COMMIT_SHORT_SHA`, a command reading that env var works from a
    terminal, but the embedded admin route still wants the probe. The OCI
    revision label (decision 6) replaces reading `IMAGE_TAG`, because it travels
@@ -155,31 +155,22 @@ this contract's rule: fields are only ever added.
 
 ---
 
-## p44 as consumer #1 (validation plan, not a build order)
+## A first consumer app (validation plan, not a build order)
 
-The point of building the lib is to keep p44 clean while proving the interfaces.
-When we do build, the p44 side is small:
+The point of building the lib is to keep the consumer app clean while proving
+the interfaces. The app side stays small:
 
-1. **Stamp the backend** - add `internal/buildinfo` (`Commit`, `BuiltAt`), inject
-   via `-ldflags -X` from a Docker build-arg, plumbed through `.gitlab-ci.yml`
-   exactly like `VITE_COMMIT_SHA` already is (frontend already stamps; backend does
-   not). Expose `GET /-/version`.
-   - Files today: `Dockerfile` (plain `go build`, no ldflags), `justfile` build
-     recipe, `.gitlab-ci.yml` (web gets `--build-arg VITE_COMMIT_SHA`, backend gets
-     nothing). The `/-/` namespace lives in
-     `internal/application/api/router.go` (pattern: `root.HandleFunc("GET /-/...")`).
-2. **Frontend already has** `VITE_COMMIT_SHA` + `CommitBadge.vue` (superadmin-only).
-   The web `/-/version` is basically exposing what the badge already reads.
-3. **Backend endpoint** - a superadmin admin route that constructs onair-go's
-   config programmatically (GitLab forge + probe live providers for backend/web),
-   calls the core, returns the `Report` JSON. Needs a **read-only GitLab API token**
-   in prod env.
-4. **Admin popover** - small icon-button in `AdminLayout.vue`'s topbar action group
-   (next to "View Map"), `el-popover trigger="click"`, renders the `Report`.
-   Superadmin-gated (matches the CommitBadge visibility). Attribution mode: `auto`
-   maps the logged-in admin email to git authors.
-
-None of this happens until the lib's interfaces feel right on paper.
+1. **Stamp the backend** - a `buildinfo` package (`Commit`, `BuiltAt`), injected
+   via `-ldflags -X` from a Docker build-arg set in CI. Expose `GET /-/version`.
+2. **Stamp the frontend** - a `VITE_COMMIT_SHA` build variable, served as the
+   web `/-/version`.
+3. **Backend endpoint** - an admin-only route that builds onair's config
+   programmatically (GitLab forge + probe live providers for backend/web),
+   calls the core and returns the `Report` JSON. Needs a **read-only GitLab API
+   token** in the prod environment.
+4. **Admin popover** - a small button in the admin topbar that renders the
+   `Report`. Admin-gated; attribution mode `auto` maps the logged-in admin's
+   email to git authors.
 
 ---
 

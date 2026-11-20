@@ -19,8 +19,8 @@ var (
 		AuthorName: "Alice", AuthorEmail: "alice@example.com", At: at,
 	}
 	refLive = onair.Ref{
-		SHA: "9e8d7c6000000000000000000000000000000000", Subject: "WS-42: Add the widget API (!1230)",
-		AuthorName: "Eugene", AuthorEmail: "eugene@example.com", At: at.Add(-time.Hour),
+		SHA: "9e8d7c6000000000000000000000000000000000", Subject: "PROJ-42: Add the widget API (!1230)",
+		AuthorName: "Bob", AuthorEmail: "bob@example.com", At: at.Add(-time.Hour),
 	}
 	refOld = onair.Ref{
 		SHA: "5f4e3d2000000000000000000000000000000000", Subject: "Older",
@@ -87,7 +87,7 @@ func collect(t *testing.T, p onair.Params) *onair.Report {
 func TestCollectInSync(t *testing.T) {
 	forge := &fakeForge{head: refHead, green: refHead}
 	r := collect(t, onair.Params{
-		Project: "p44", Environment: "prod", Forge: forge,
+		Project: "shop", Environment: "prod", Forge: forge,
 		Components: []onair.Component{
 			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{SHA: "a1b2c3d", Confidence: onair.Probed}}},
 			{Name: "web", Live: fakeLive{info: onair.LiveInfo{SHA: "a1b2c3d", Confidence: onair.Probed}}},
@@ -211,8 +211,8 @@ func TestCollectAttribution(t *testing.T) {
 	newForge := func() *fakeForge {
 		return &fakeForge{head: refHead, green: refHead, recent: []onair.Ref{refHead, refLive}}
 	}
-	eugene := fakeIdentity{"amber.pixels.io@gmail.com"}
-	aliases := map[string][]string{"eugene": {"amber.pixels.io@gmail.com", "eugene@example.com"}}
+	bob := fakeIdentity{"bob@home.example"}
+	aliases := map[string][]string{"bob": {"bob@home.example", "bob@example.com"}}
 	liveComp := []onair.Component{
 		{Name: "backend", Live: fakeLive{info: onair.LiveInfo{SHA: "9e8d7c6", Confidence: onair.Probed}}},
 	}
@@ -222,7 +222,7 @@ func TestCollectAttribution(t *testing.T) {
 		forge.behind = map[string]int{"9e8d7c6..a1b2c3d": 1}
 		r := collect(t, onair.Params{
 			Forge: forge, Attribution: onair.AttributionOn,
-			Identity: eugene, Identities: aliases, Components: liveComp,
+			Identity: bob, Identities: aliases, Components: liveComp,
 		})
 		if !r.Components[0].Live.Mine {
 			t.Error("expected live commit to be mine via the alias map")
@@ -237,10 +237,10 @@ func TestCollectAttribution(t *testing.T) {
 		forge.behind = map[string]int{"9e8d7c6..a1b2c3d": 1}
 		r := collect(t, onair.Params{
 			Forge: forge, Attribution: onair.AttributionAuto,
-			Identity: eugene, Identities: aliases, Components: liveComp,
+			Identity: bob, Identities: aliases, Components: liveComp,
 		})
 		if !r.Components[0].Live.Mine {
-			t.Error("gate should be open: eugene@example.com authored recent history")
+			t.Error("gate should be open: bob@example.com authored recent history")
 		}
 	})
 
@@ -261,7 +261,7 @@ func TestCollectAttribution(t *testing.T) {
 		forge.behind = map[string]int{"9e8d7c6..a1b2c3d": 1}
 		r := collect(t, onair.Params{
 			Forge: forge, Attribution: onair.AttributionOff,
-			Identity: eugene, Identities: aliases, Components: liveComp,
+			Identity: bob, Identities: aliases, Components: liveComp,
 		})
 		if r.Components[0].Live.Mine {
 			t.Error("off must never annotate")
@@ -277,7 +277,7 @@ func TestCollectLinks(t *testing.T) {
 	}
 	r := collect(t, onair.Params{
 		Forge: forge, Attribution: onair.AttributionOff,
-		Task: &onair.TaskConfig{Pattern: `WS-\d+`, URL: "https://tasks.test/{id}"},
+		Task: &onair.TaskConfig{Pattern: `PROJ-\d+`, URL: "https://tasks.test/{id}"},
 		Components: []onair.Component{
 			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{SHA: "9e8d7c6", Confidence: onair.Probed}}},
 		},
@@ -287,7 +287,7 @@ func TestCollectLinks(t *testing.T) {
 		t.Errorf("head MR link not annotated: %+v", r.Head)
 	}
 	lr := r.Components[0].Live
-	if lr.TaskID != "WS-42" || lr.TaskURL != "https://tasks.test/WS-42" {
+	if lr.TaskID != "PROJ-42" || lr.TaskURL != "https://tasks.test/PROJ-42" {
 		t.Errorf("live task link not annotated: %+v", lr.CommitInfo)
 	}
 }
@@ -374,7 +374,7 @@ func TestCollectRecordedWithRollout(t *testing.T) {
 	r := collect(t, onair.Params{
 		Forge: forge, Attribution: onair.AttributionOn,
 		Identity: fakeIdentity{"alice@example.com"},
-		Task:     &onair.TaskConfig{Pattern: `WS-\d+`, URL: "https://tasks.test/{id}"},
+		Task:     &onair.TaskConfig{Pattern: `PROJ-\d+`, URL: "https://tasks.test/{id}"},
 		Components: []onair.Component{
 			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{
 				SHA: "9e8d7c6", Confidence: onair.Recorded,

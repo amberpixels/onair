@@ -18,11 +18,11 @@ func report() *onair.Report {
 	}
 	liveCI := onair.CommitInfo{
 		SHA: "9e8d7c6000000000000000000000000000000000", Subject: "Add the widget API",
-		Author: "Eugene", At: at.Add(-time.Hour), Mine: true, TaskID: "WS-42",
+		Author: "Bob", At: at.Add(-time.Hour), Mine: true, TaskID: "PROJ-42",
 	}
 	return &onair.Report{
-		Project: "p44", Environment: "prod",
-		Forge: onair.ForgeInfo{Kind: "gitlab", Host: "gitlab.com", Repo: "amberpixels/p44", Branch: "main"},
+		Project: "shop", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Host: "gitlab.com", Repo: "acme/shop", Branch: "main"},
 		Head:  &head,
 		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
 		Components: []onair.ComponentReport{
@@ -50,18 +50,18 @@ func TestTTY(t *testing.T) {
 	out := buf.String()
 
 	for _, want := range []string{
-		"p44 · prod",
-		"gitlab.com/amberpixels/p44",
+		"shop · prod",
+		"gitlab.com/acme/shop",
 		"HEAD    a1b2c3d (2h ago) by Alice",
 		"★ == HEAD",
 		"→ Fix the thing • ↗ !1234",
-		"Live    9e8d7c6 (3h ago) by Eugene",
+		"Live    9e8d7c6 (3h ago) by Bob",
 		"↓ 1 behind green",
 		"1 behind main",
 		"✓ yours",
 		"backend 9e8d7c6 · web a1b2c3d (assumed)",
 		"⚠ web 1 behind backend",
-		"→ Add the widget API • ⧉ WS-42",
+		"→ Add the widget API • ⧉ PROJ-42",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("tty output missing %q:\n%s", want, out)
@@ -78,11 +78,11 @@ func TestTTYConverged(t *testing.T) {
 	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
 	head := onair.CommitInfo{
 		SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face",
-		Author: "Eugene", At: at, Mine: true, Request: "!4076",
+		Author: "Bob", At: at, Mine: true, Request: "!4076",
 	}
 	r := &onair.Report{
-		Project: "p44", Environment: "prod",
-		Forge: onair.ForgeInfo{Kind: "gitlab", Host: "gitlab.com", Repo: "amberpixels/p44", Branch: "main"},
+		Project: "shop", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Host: "gitlab.com", Repo: "acme/shop", Branch: "main"},
 		Head:  &head,
 		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
 		Components: []onair.ComponentReport{
@@ -98,7 +98,7 @@ func TestTTYConverged(t *testing.T) {
 	}
 	out := buf.String()
 
-	if !strings.Contains(out, "Deployed: 6a9af3d (1h ago) by Eugene") {
+	if !strings.Contains(out, "Deployed: 6a9af3d (1h ago) by Bob") {
 		t.Errorf("missing collapsed deployed line:\n%s", out)
 	}
 	for _, want := range []string{"★ current", "✓ yours", "→ Stepper face • ↗ !4076"} {
@@ -120,8 +120,8 @@ func TestTTYRecordedRollout(t *testing.T) {
 	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
 	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
 	r := &onair.Report{
-		Project: "p44", Environment: "prod",
-		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Project: "shop", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "acme/shop", Branch: "main"},
 		Head:  &head,
 		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
 		Components: []onair.ComponentReport{
@@ -199,7 +199,7 @@ func TestJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(buf.String()), &v); err != nil {
 		t.Fatal(err)
 	}
-	if v["project"] != "p44" || v["drift"] == nil {
+	if v["project"] != "shop" || v["drift"] == nil {
 		t.Errorf("unexpected JSON: %v", v)
 	}
 	// The report is shown beyond the dev team: no author emails in JSON.
@@ -214,8 +214,8 @@ func TestTTYNotServing(t *testing.T) {
 	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
 	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
 	r := &onair.Report{
-		Project: "p44", Environment: "prod",
-		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Project: "shop", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "acme/shop", Branch: "main"},
 		Head:  &head,
 		Green: &onair.GreenInfo{CommitInfo: head},
 		Components: []onair.ComponentReport{
@@ -278,8 +278,8 @@ func TestTTYConvergedReported(t *testing.T) {
 	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
 	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
 	r := &onair.Report{
-		Project: "p44", Environment: "prod",
-		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Project: "shop", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "acme/shop", Branch: "main"},
 		Head:  &head,
 		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
 		Components: []onair.ComponentReport{
@@ -305,8 +305,8 @@ func TestTTYComponentErrors(t *testing.T) {
 	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
 	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
 	r := &onair.Report{
-		Project: "p44", Environment: "prod",
-		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Project: "shop", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "acme/shop", Branch: "main"},
 		Head:  &head,
 		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
 		Components: []onair.ComponentReport{

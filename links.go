@@ -10,7 +10,7 @@ import (
 // ...) to their URLs. Ported as-is from Ruby onair's task: config.
 type TaskConfig struct {
 	// Pattern is a regexp matched against the commit subject; the whole
-	// match is the task id (e.g. `WS-\d+`).
+	// match is the task id (e.g. `PROJ-\d+`).
 	Pattern string
 	// URL is the link template; "{id}" is replaced with the matched id.
 	URL string

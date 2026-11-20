@@ -6,7 +6,7 @@ host, and whether its container is serving. It reads the image label
 endpoint, which makes it work for workers and bots too.
 
 ```
-$ live.sh p44 worker
+$ live.sh shop worker
 {"commit":"9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d","state":"running"}
 ```
 
@@ -50,7 +50,7 @@ a sudo rule for this one script).
 
 ```yaml
 - name: worker
-  live: { command: "ssh prod onair-live p44 worker" }
+  live: { command: "ssh prod onair-live shop worker" }
 ```
 
 The first argument is the Compose project name, which `docker compose ls`

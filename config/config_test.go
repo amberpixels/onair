@@ -10,17 +10,17 @@ import (
 )
 
 const sample = `
-project: p44
-forge: { kind: gitlab, repo: amberpixels/p44, branch: main }
+project: shop
+forge: { kind: gitlab, repo: acme/shop, branch: main }
 attribution: auto
 identities:
-  eugene: [amber.pixels.io@gmail.com]
-task: { pattern: 'WS-\d+', url: 'https://tasks.test/{id}' }
+  bob: [bob@home.example]
+task: { pattern: 'PROJ-\d+', url: 'https://tasks.test/{id}' }
 environments:
   prod:
     components:
       - name: backend
-        live: { probe: "https://pieton.md/api/-/version" }
+        live: { probe: "https://shop.example/api/-/version" }
       - name: web
         live: { command: "ssh prod docker inspect web --format '{{.Config.Image}}'" }
       - name: worker
@@ -48,7 +48,7 @@ func TestLoad(t *testing.T) {
 		t.Errorf("components parsed wrong: %+v", comps)
 	}
 	// onair.TaskConfig carries no yaml tags; its lowercased names must decode.
-	if f.Task == nil || f.Task.Pattern != `WS-\d+` || f.Task.URL != "https://tasks.test/{id}" {
+	if f.Task == nil || f.Task.Pattern != `PROJ-\d+` || f.Task.URL != "https://tasks.test/{id}" {
 		t.Errorf("task parsed wrong: %+v", f.Task)
 	}
 }
@@ -60,8 +60,8 @@ func TestLoadComposeLiveExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"web":    "ssh prod onair-live p44 web",
-		"worker": "ssh prod onair-live p44 worker",
+		"web":    "ssh prod onair-live shop web",
+		"worker": "ssh prod onair-live shop worker",
 	}
 	for _, c := range f.Environments["prod"].Components {
 		if w, ok := want[c.Name]; ok {
@@ -78,7 +78,7 @@ func TestLoadComposeLiveExample(t *testing.T) {
 
 func TestLoadDefaults(t *testing.T) {
 	f, err := config.Load(write(t, t.TempDir(), `
-forge: { repo: amberpixels/p44 }
+forge: { repo: acme/shop }
 environments:
   prod:
     components: [{ name: app }]
@@ -86,7 +86,7 @@ environments:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Project != "p44" || f.Forge.Kind != "gitlab" || f.Attribution != onair.AttributionAuto {
+	if f.Project != "shop" || f.Forge.Kind != "gitlab" || f.Attribution != onair.AttributionAuto {
 		t.Errorf("defaults not applied: %+v", f)
 	}
 	// The branch default belongs to onair.Collect, so config leaves it empty.
@@ -119,7 +119,7 @@ func TestLoadRejects(t *testing.T) {
 
 func TestLoadDeploymentEnvironments(t *testing.T) {
 	f, err := config.Load(write(t, t.TempDir(), `
-forge: { repo: amberpixels/p44 }
+forge: { repo: acme/shop }
 environments:
   prod:
     environment: production
