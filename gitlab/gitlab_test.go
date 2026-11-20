@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/amberpixels/onair"
@@ -201,5 +202,49 @@ func TestDeploymentsSharedPerEnvironment(t *testing.T) {
 	}
 	if *calls != 1 {
 		t.Errorf("expected one request per environment, got %d", *calls)
+	}
+}
+
+// A cancelled first call must not poison the key: the next caller fetches
+// again. Concurrent callers of one key share one request.
+func TestResolveMemo(t *testing.T) {
+	calls := make(chan struct{}, 16)
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/projects/amberpixels%2Fp44/repository/commits/", func(w http.ResponseWriter, r *http.Request) {
+		calls <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		fmt.Fprint(w, commitJSON)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	client := gitlab.NewClient(srv.URL, "amberpixels/p44", "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { <-calls; cancel() }()
+	if _, err := client.Resolve(ctx, "a1b2c3d"); err == nil {
+		t.Fatal("expected the cancelled call to fail")
+	}
+
+	close(release)
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			if ref, err := client.Resolve(context.Background(), "a1b2c3d"); err != nil || ref.Subject == "" {
+				t.Errorf("resolve after a cancelled call: %+v, %v", ref, err)
+			}
+		})
+	}
+	wg.Wait()
+	if n := len(calls); n != 1 {
+		t.Errorf("expected one request after the cancelled one, got %d", n)
+	}
+	// The full SHA was stored with the short one.
+	if _, err := client.Resolve(context.Background(), "a1b2c3d000000000000000000000000000000000"); err != nil || len(calls) != 1 {
+		t.Errorf("full SHA should hit the memo: %v, %d calls", err, len(calls))
 	}
 }

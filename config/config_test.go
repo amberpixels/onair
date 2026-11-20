@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/amberpixels/onair"
 	"github.com/amberpixels/onair/config"
 )
 
@@ -46,6 +47,10 @@ func TestLoad(t *testing.T) {
 	if len(comps) != 3 || comps[1].Live.Command == "" || comps[2].Live != nil {
 		t.Errorf("components parsed wrong: %+v", comps)
 	}
+	// onair.TaskConfig carries no yaml tags; its lowercased names must decode.
+	if f.Task == nil || f.Task.Pattern != `WS-\d+` || f.Task.URL != "https://tasks.test/{id}" {
+		t.Errorf("task parsed wrong: %+v", f.Task)
+	}
 }
 
 // The example shipped beside live.sh must keep loading as the schema changes.
@@ -81,8 +86,12 @@ environments:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Project != "p44" || f.Forge.Kind != "gitlab" || f.Forge.Branch != "main" || f.Attribution != "auto" {
+	if f.Project != "p44" || f.Forge.Kind != "gitlab" || f.Attribution != onair.AttributionAuto {
 		t.Errorf("defaults not applied: %+v", f)
+	}
+	// The branch default belongs to onair.Collect, so config leaves it empty.
+	if f.Forge.Branch != "" {
+		t.Errorf("branch should stay empty for Collect to default, got %q", f.Forge.Branch)
 	}
 }
 
@@ -96,6 +105,8 @@ func TestLoadRejects(t *testing.T) {
 		"probe AND env":     "forge: { repo: a/b }\nenvironments: { prod: { components: [{ name: a, live: { probe: x, environment: y } }] } }",
 		"bad attribution":   "forge: { repo: a/b }\nattribution: maybe\nenvironments: { prod: { components: [{ name: a }] } }",
 		"unknown key":       "forge: { repo: a/b }\ntypo_key: 1\nenvironments: { prod: { components: [{ name: a }] } }",
+		"bare live":         "forge: { repo: a/b }\nenvironments: { prod: { components: [{ name: a, live: }] } }",
+		"null live":         "forge: { repo: a/b }\nenvironments: { prod: { components: [{ name: a, live: null }] } }",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {

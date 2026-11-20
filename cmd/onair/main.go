@@ -73,7 +73,7 @@ func run() error {
 
 	trackedBranch := *branch
 	if trackedBranch == "" {
-		trackedBranch = cfg.Forge.Branch
+		trackedBranch = cfg.Forge.Branch // may be empty: Collect owns the default
 	}
 
 	params := onair.Params{
@@ -81,19 +81,16 @@ func run() error {
 		Environment: envName,
 		Forge:       forge,
 		ForgeInfo: onair.ForgeInfo{
-			Kind:   cfg.Forge.Kind,
-			Host:   forge.Host(),
-			Repo:   cfg.Forge.Repo,
-			Branch: trackedBranch,
+			Kind: cfg.Forge.Kind,
+			Host: forge.Host(),
+			Repo: cfg.Forge.Repo,
 		},
 		Branch:      trackedBranch,
 		Components:  components,
 		Identity:    gitIdentity{},
-		Attribution: onair.AttributionMode(cfg.Attribution),
+		Attribution: cfg.Attribution,
 		Identities:  cfg.Identities,
-	}
-	if cfg.Task != nil {
-		params.Task = &onair.TaskConfig{Pattern: cfg.Task.Pattern, URL: cfg.Task.URL}
+		Task:        cfg.Task,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -134,8 +131,23 @@ func pickEnvironment(cfg *config.File, name string) (string, config.Environment,
 // buildComponents wires each configured component to its provider, applying
 // the -live-ref override (the pipe form of the command contract). A component
 // with no live source reads the environment's deployment records when one is
-// configured.
+// configured. A -component that would change nothing is an error.
 func buildComponents(env config.Environment, forge *gitlab.Client, liveRef, componentName string) ([]onair.Component, error) {
+	if componentName != "" {
+		if liveRef == "" {
+			return nil, fmt.Errorf("-component needs -live-ref")
+		}
+		names := make([]string, len(env.Components))
+		known := false
+		for i, c := range env.Components {
+			names[i] = c.Name
+			known = known || c.Name == componentName
+		}
+		if !known {
+			return nil, fmt.Errorf("component %q is not configured; configured: %s", componentName, strings.Join(names, ", "))
+		}
+	}
+
 	override, overrideTarget := onair.LiveInfo{}, ""
 	if liveRef != "" {
 		raw := liveRef

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/amberpixels/onair"
@@ -22,16 +21,20 @@ const DefaultBaseURL = "https://gitlab.com"
 
 // Client is an onair.Forge backed by one GitLab project. The zero value is
 // not usable; construct with NewClient.
+//
+// Its caches (resolved commits, compare counts, deployment answers) keep every
+// answer for the client's lifetime, errors included, except a cancelled or
+// timed-out request, which the next caller retries. A long-running host
+// builds one Client per report, so an answer never goes stale.
 type Client struct {
 	baseURL string
 	repo    string // "group/project"
 	token   string
 	http    *http.Client
 
-	mu          sync.Mutex
-	commits     map[string]onair.Ref          // Resolve cache
-	behinds     map[string]int                // Behind cache, key "from..to"
-	deployments map[string]*deploymentsResult // Deployments cache, by environment
+	commits     memo[onair.Ref]      // Resolve, by commit-ish and by full SHA
+	behinds     memo[int]            // Behind, key "from..to"
+	deployments memo[onair.LiveInfo] // deployment Live, by environment
 }
 
 // NewClient returns a Forge for repo ("group/project") on baseURL (empty
@@ -41,13 +44,10 @@ func NewClient(baseURL, repo, token string) *Client {
 		baseURL = DefaultBaseURL
 	}
 	return &Client{
-		baseURL:     strings.TrimSuffix(baseURL, "/"),
-		repo:        repo,
-		token:       token,
-		http:        &http.Client{Timeout: 15 * time.Second},
-		commits:     map[string]onair.Ref{},
-		behinds:     map[string]int{},
-		deployments: map[string]*deploymentsResult{},
+		baseURL: strings.TrimSuffix(baseURL, "/"),
+		repo:    repo,
+		token:   token,
+		http:    &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -110,45 +110,28 @@ func (c *Client) LatestGreen(ctx context.Context, branch string) (onair.Ref, err
 }
 
 func (c *Client) Resolve(ctx context.Context, sha string) (onair.Ref, error) {
-	c.mu.Lock()
-	if ref, ok := c.commits[sha]; ok {
-		c.mu.Unlock()
+	return c.commits.get(ctx, sha, func() (onair.Ref, error) {
+		var commit glCommit
+		if err := c.get(ctx, "repository/commits/"+url.PathEscape(sha), nil, &commit); err != nil {
+			return onair.Ref{}, err
+		}
+		ref := commit.ref()
+		// A short SHA and its full form name one commit.
+		c.commits.put(ref.SHA, ref)
 		return ref, nil
-	}
-	c.mu.Unlock()
-
-	var commit glCommit
-	if err := c.get(ctx, "repository/commits/"+url.PathEscape(sha), nil, &commit); err != nil {
-		return onair.Ref{}, err
-	}
-	ref := commit.ref()
-	c.mu.Lock()
-	c.commits[sha], c.commits[ref.SHA] = ref, ref
-	c.mu.Unlock()
-	return ref, nil
+	})
 }
 
 func (c *Client) Behind(ctx context.Context, from, to string) (int, error) {
-	key := from + ".." + to
-	c.mu.Lock()
-	if n, ok := c.behinds[key]; ok {
-		c.mu.Unlock()
-		return n, nil
-	}
-	c.mu.Unlock()
-
-	var cmp struct {
-		Commits []struct{} `json:"commits"`
-	}
-	err := c.get(ctx, "repository/compare", url.Values{"from": {from}, "to": {to}}, &cmp)
-	if err != nil {
-		return 0, err
-	}
-	n := len(cmp.Commits)
-	c.mu.Lock()
-	c.behinds[key] = n
-	c.mu.Unlock()
-	return n, nil
+	return c.behinds.get(ctx, from+".."+to, func() (int, error) {
+		var cmp struct {
+			Commits []struct{} `json:"commits"`
+		}
+		if err := c.get(ctx, "repository/compare", url.Values{"from": {from}, "to": {to}}, &cmp); err != nil {
+			return 0, err
+		}
+		return len(cmp.Commits), nil
+	})
 }
 
 func (c *Client) Recent(ctx context.Context, branch string, limit int) ([]onair.Ref, error) {

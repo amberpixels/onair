@@ -308,6 +308,20 @@ func TestCollectUnresolvableLiveStillReports(t *testing.T) {
 	if lr.Confidence != onair.Reported {
 		t.Errorf("expected reported confidence, got %s", lr.Confidence)
 	}
+	if lr.URL != "https://forge.test/c/deadbeef" {
+		t.Errorf("an unresolved SHA should still link to the forge, got %q", lr.URL)
+	}
+
+	// A tag the forge cannot resolve gets no commit URL, which would 404.
+	r = collect(t, onair.Params{
+		Forge: forge, Attribution: onair.AttributionOff,
+		Components: []onair.Component{
+			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{SHA: "v1.2.3", Confidence: onair.Reported}}},
+		},
+	})
+	if url := r.Components[0].Live.URL; url != "" {
+		t.Errorf("a tag should not get a commit URL, got %q", url)
+	}
 }
 
 type fakeIdentity []string
@@ -364,7 +378,7 @@ func TestCollectRecordedWithRollout(t *testing.T) {
 		Components: []onair.Component{
 			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{
 				SHA: "9e8d7c6", Confidence: onair.Recorded,
-				Rollout: &onair.Rollout{SHA: "a1b2c3d", Status: onair.RolloutPending, At: started},
+				Rollout: &onair.Rollout{SHA: "a1b2c3d", Status: onair.RolloutPending, StartedAt: started},
 			}}},
 		},
 	})
@@ -374,7 +388,7 @@ func TestCollectRecordedWithRollout(t *testing.T) {
 		t.Errorf("recorded confidence must be kept, got %s", lr.Confidence)
 	}
 	ro := lr.Rollout
-	if ro == nil || ro.Status != onair.RolloutPending || !ro.At.Equal(started) {
+	if ro == nil || ro.Status != onair.RolloutPending || !ro.StartedAt.Equal(started) {
 		t.Fatalf("expected a pending rollout, got %+v", ro)
 	}
 	if ro.Subject != refHead.Subject || ro.Request != "!1234" {
@@ -393,5 +407,52 @@ func TestLiveConfidenceWeaker(t *testing.T) {
 				t.Errorf("%q.Weaker(%q) = %v, want %v", order[i], order[j], got, want)
 			}
 		}
+	}
+}
+
+// With HEAD unavailable the report still carries Green and every Live, with
+// no lag measured against a HEAD it does not know.
+func TestCollectHeadUnavailable(t *testing.T) {
+	forge := &fakeForge{green: refHead, headErr: errors.New("502"), behind: map[string]int{}}
+	r := collect(t, onair.Params{
+		Forge: forge, Attribution: onair.AttributionOff,
+		Components: []onair.Component{
+			{Name: "backend", Live: fakeLive{info: onair.LiveInfo{SHA: refHead.SHA, Confidence: onair.Probed}}},
+		},
+	})
+
+	if r.Head != nil {
+		t.Errorf("Head should be nil, got %+v", r.Head)
+	}
+	if len(r.Errors) != 1 || r.Errors[0] != "head: 502" {
+		t.Errorf("expected one head error, got %v", r.Errors)
+	}
+	if r.Green == nil || r.Green.BehindHead != 0 {
+		t.Errorf("Green should stand with no lag behind HEAD, got %+v", r.Green)
+	}
+	lr := r.Components[0].Live
+	if lr == nil || lr.Confidence != onair.Probed || lr.BehindHead != 0 {
+		t.Errorf("Live should stand with no lag behind HEAD, got %+v", lr)
+	}
+	if r.Forge.Branch != "main" {
+		t.Errorf("Forge.Branch should carry the default branch, got %q", r.Forge.Branch)
+	}
+}
+
+// A rollout is anchored to the provider's own Live; once Green stands in, it
+// is dropped with the state.
+func TestCollectAssumedDropsRollout(t *testing.T) {
+	forge := &fakeForge{head: refHead, green: refHead}
+	r := collect(t, onair.Params{
+		Forge: forge, Attribution: onair.AttributionOff,
+		Components: []onair.Component{{Name: "backend", Live: fakeLive{info: onair.LiveInfo{
+			Confidence: onair.Assumed, State: "restarting",
+			Rollout: &onair.Rollout{SHA: refLive.SHA, Status: onair.RolloutPending},
+		}}}},
+	})
+
+	lr := r.Components[0].Live
+	if lr == nil || lr.Confidence != onair.Assumed || lr.Rollout != nil || lr.State != "" {
+		t.Errorf("assumed live should carry no rollout or state, got %+v", lr)
 	}
 }

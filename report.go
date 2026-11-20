@@ -6,17 +6,19 @@ import "time"
 // changes additively. Rendering it is the host's job - the CLI's tty renderer
 // and an admin popover are just two consumers.
 type Report struct {
-	Project     string            `json:"project"`
-	Environment string            `json:"environment"`
+	Project     string `json:"project"`
+	Environment string `json:"environment"`
+	// Forge.Branch is always the branch Collect tracked.
 	Forge       ForgeInfo         `json:"forge"`
 	Head        *CommitInfo       `json:"head,omitempty"`
 	Green       *GreenInfo        `json:"green,omitempty"`
 	Components  []ComponentReport `json:"components"`
 	Drift       *Drift            `json:"drift"`
 	Attribution AttributionMode   `json:"attribution"`
-	// Errors carries degradation notes (a tier that could not be fetched, a
-	// provider that failed). Presence of errors never prevents a report:
-	// degrade gracefully, render something useful.
+	// Errors carries degradation notes (a tier that could not be fetched, an
+	// identity lookup that failed). A failed provider is on its component's
+	// Error instead. Presence of errors never prevents a report: degrade
+	// gracefully, render something useful.
 	Errors []string `json:"errors,omitempty"`
 }
 
@@ -76,8 +78,8 @@ func (l *LiveReport) Serving() bool {
 // RolloutReport is a deploy newer than Live that has not succeeded.
 type RolloutReport struct {
 	CommitInfo
-	Status RolloutStatus `json:"status"`
-	At     time.Time     `json:"startedAt,omitzero"`
+	Status    RolloutStatus `json:"status"`
+	StartedAt time.Time     `json:"startedAt,omitzero"`
 }
 
 // Drift flags components that report different Live commits when they should

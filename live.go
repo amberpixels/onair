@@ -41,8 +41,8 @@ func (c LiveConfidence) Weaker(other LiveConfidence) bool {
 }
 
 // LiveInfo is what a LiveProvider can know on its own: a commit-ish and,
-// sometimes, when it was built. The engine resolves the rest through the
-// Forge.
+// sometimes, when it was built, the container's state and a newer deploy
+// that has not succeeded. The engine resolves the rest through the Forge.
 type LiveInfo struct {
 	// SHA is a full or short commit SHA, or anything the Forge can resolve
 	// to one (a tag, an image-ref suffix).
@@ -69,9 +69,9 @@ const (
 
 // Rollout is a deploy of SHA that is in flight or failed.
 type Rollout struct {
-	SHA    string
-	Status RolloutStatus
-	At     time.Time // when the deploy started; zero when unknown
+	SHA       string
+	Status    RolloutStatus
+	StartedAt time.Time // zero when unknown
 }
 
 // Serving reports whether a provider-reported state means the component

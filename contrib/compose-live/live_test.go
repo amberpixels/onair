@@ -138,6 +138,7 @@ func TestLiveFailures(t *testing.T) {
 		{"label missing from map", []container{{"c1", "running", "running||<no value>"}}, []string{"p44", "worker"}, 4},
 		{"label with a quote", []container{{"c1", "running", `running||abc"def`}}, []string{"p44", "worker"}, 4},
 		{"label with a separator", []container{{"c1", "running", "running||abc|def"}}, []string{"p44", "worker"}, 4},
+		{"unexpected state", []container{{"c1", "running", "run ning||" + sha}}, []string{"p44", "worker"}, 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

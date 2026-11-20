@@ -4,8 +4,8 @@ Companion to `README.md` (the README-driven front page). This file is the
 scratchpad: why the design is shaped this way, how it maps to the Ruby gem, what
 is still undecided, and the plan to validate it with p44.
 
-Status: **v1 implemented** (core + gitlab forge + probe/command/assumed +
-tty/json render + CLI, all tested). Open questions below are marked resolved
+Status: **v1 implemented** (core + gitlab forge +
+probe/command/environment/assumed + tty/json render + CLI, all tested). Open questions below are marked resolved
 where the code made the call; the rest still need a decision.
 
 ---
@@ -17,11 +17,11 @@ ones - we are generalizing, not redesigning.
 
 | Ruby onair                         | onair-go equivalent                          |
 |------------------------------------|----------------------------------------------|
-| `Platform` adapter (Heroku)        | **LiveProvider** (command / probe / assumed) |
+| `Platform` adapter (Heroku)        | **LiveProvider** (command / probe / environment / assumed) |
 | `RemoteHead` (GitHub API + ls-remote) | **Forge.Head**                            |
 | local `Git` commit lookup          | **Forge.Resolve** (or a local git impl)      |
-| `Snapshot{deployed, pending, ...}` | per-component **Live** ref + confidence       |
-| `Report` rules engine              | core **report** package                       |
+| `Snapshot{deployed, pending, ...}` | per-component **Live** ref + confidence + rollout |
+| `Report` rules engine              | core engine, **`onair.Collect`** (root package) |
 | `Renderer::TTY` / `::JSON`         | `render` package (tty + json)                 |
 | `.onair.yml`, task links           | same config file, extended for components     |
 
@@ -35,8 +35,9 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
 
 ### Concepts we inherit but reshape
 
-- Ruby `Pending` (in-flight build) -> our **Green tier + pipeline status**. A
-  running pipeline on a commit newer than Green is our "pending."
+- Ruby `Pending` (in-flight deploy) -> a pending **Rollout** on the component's
+  Live: a deploy newer than Live that has not succeeded yet. GitLab deployment
+  records report it today; a failed deploy is a failed Rollout.
 - Ruby `pinned` (newer build succeeded but not running / rollback) -> falls out
   of comparing **Live vs Green**: Live behind Green = pinned/stalled/rolled back.
 - Ruby `yours` (your commit absorbed by a later deploy) -> our **attribution**,
@@ -51,8 +52,11 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
 1. **Three explicit truth tiers (HEAD / Green / Live)** rather than onair's binary
    git-vs-deployed. Rationale: our deploy path can't self-report by default, so we
    must be explicit about how much we actually know.
-2. **Confidence is a first-class field**, not a boolean. `Probed / ImageTag /
-   Assumed`. Drives honest rendering.
+2. **Confidence is a first-class field**, not a boolean, ranked strongest
+   first: `Probed > Reported > Recorded > Assumed`. Probed is the app itself
+   answering, Reported a configured command asserting the commit, Recorded the
+   forge's deployment record, Assumed Green standing in. Drives honest
+   rendering.
 3. **Components are a named ordered list**, each with its own providers. Handles
    multi-backend, separate web image, mono vs multi repo, and drift - all one model.
 4. **Rendering is not the library's job.** Core returns a `Report`; CLI and admin
@@ -78,7 +82,8 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
    machine with the CLI and credentials (kubectl context, SSH keys), which the
    embedded/library case (p44 admin route running inside the backend) does not
    have. Provider lineup: **command** (universal CLI adapter), **probe**
-   (embedded / `/-/version` convention), **assumed** (fallback).
+   (embedded / `/-/version` convention), **environment** (the forge's
+   deployment records), **assumed** (fallback).
    Reading the forge's own deployment records (`environment`, `Recorded`
    confidence) does not break this rule: it is a forge capability, like
    pipelines, not a per-platform adapter. It serves viewers with project read
@@ -88,7 +93,7 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
 
 ```yaml
 components:
-  backend:
+  - name: backend
     live:
       command: kubectl get deploy api -o jsonpath='{.spec.template.spec.containers[0].image}' # k8s
       # command: flyctl image show --json | jq -r .Tag                                        # fly.io
@@ -105,8 +110,8 @@ components:
   not reported as live. Without `state`, nothing changes.
 - **non-zero exit**: Live unavailable -> degrade to `Assumed = Green`, the
   existing fallback path. Nothing new.
-- **confidence**: user-asserted ground truth, so `Probed`-grade - or a distinct
-  `Reported` label (see open question 4).
+- **confidence**: `Reported` - user-asserted truth onair did not observe
+  itself, ranked below `Probed` (see open question 4).
 - **two invocation shapes**, same contract: onair execs the configured
   `live.command` itself, and an ad-hoc pipe/flag form for one-offs:
   `kubectl ... | onair --live-ref -`.
@@ -133,9 +138,9 @@ this contract's rule: fields are only ever added.
 4. ~~How does `image` live-provider read the running tag?~~ **Dissolved into
    `command`** (decision 7): SSH + `docker inspect`, Docker API socket, reading
    the compose `IMAGE_TAG` - all are just whatever command the user configures,
-   not adapters we write. What remains of this question: does command output get
-   `Probed` confidence or its own `Reported` label (which would replace
-   `ImageTag` in decision 2's enum)? For p44, where the deploy sets
+   not adapters we write. **Resolved by `Reported`**: command output gets its
+   own confidence, ranked below `Probed`, and `ImageTag` is gone from decision
+   2's enum. For p44, where the deploy sets
    `IMAGE_TAG=$CI_COMMIT_SHORT_SHA`, a command reading that env var works from a
    terminal, but the embedded admin route still wants the probe. The OCI
    revision label (decision 6) replaces reading `IMAGE_TAG`, because it travels
@@ -180,9 +185,10 @@ None of this happens until the lib's interfaces feel right on paper.
 
 ## Things a senior reviewer would flag
 
-- **Rollback/stall detection is the killer feature and only the probe delivers it.**
-  If we ship without probes, we ship a fancy version string. The probe convention
-  must land early, or the tool doesn't earn its thesis.
+- **Rollback/stall detection is the killer feature.** The probe delivers it, and
+  so do the OCI label reader (`contrib/compose-live`, with container state) and
+  the forge's deployment records (with pending and failed rollouts). Without a
+  live source we ship a fancy version string, so these must stay first-class.
 - **Email identity is a swamp.** Noreply addresses, squash-merge author rewriting,
   bot commits. Alias map is table stakes; don't over-promise `auto` accuracy.
 - **Forge rate limits / latency.** Cache forge calls ~30-60s; race API vs a cheap

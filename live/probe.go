@@ -1,8 +1,9 @@
-// Package live provides the LiveProvider implementations: probe (the
-// /-/version convention), command (the universal adapter - any CLI's output
-// is the answer) and static (a ref handed in directly, e.g. piped to the
-// CLI). The assumed fallback lives in the core engine, because only the
-// engine knows Green.
+// Package live provides the host-side LiveProvider implementations: probe
+// (the /-/version convention), command (the universal adapter - any CLI's
+// output is the answer) and static (a ref handed in directly, e.g. piped to
+// the CLI). Deployment records live in the gitlab package, beside the forge
+// that keeps them, and the assumed fallback lives in the core engine, because
+// only the engine knows Green.
 package live
 
 import (
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/amberpixels/onair"
@@ -46,17 +48,31 @@ func (p *Probe) Live(ctx context.Context) (onair.LiveInfo, error) {
 	if err != nil {
 		return onair.LiveInfo{}, fmt.Errorf("probe %s: %w", p.URL, err)
 	}
+	info, err := decodeVersion(body)
+	if err != nil {
+		return onair.LiveInfo{}, fmt.Errorf("probe %s: bad version payload: %w", p.URL, err)
+	}
+	if info.SHA == "" {
+		return onair.LiveInfo{}, fmt.Errorf(`probe %s: version payload has no "commit"`, p.URL)
+	}
+	// An app that answers its probe is serving, so a state it sends is not
+	// part of the probe contract.
+	return onair.LiveInfo{SHA: info.SHA, BuiltAt: info.BuiltAt, Confidence: onair.Probed}, nil
+}
+
+// decodeVersion decodes the {commit, builtAt, state} payload the probe and
+// command contracts share. An unparsable builtAt stays zero; callers wrap the
+// error and check for a missing commit with their own wording.
+func decodeVersion(data []byte) (onair.LiveInfo, error) {
 	var v struct {
 		Commit  string `json:"commit"`
 		BuiltAt string `json:"builtAt"`
+		State   string `json:"state"`
 	}
-	if err := json.Unmarshal(body, &v); err != nil {
-		return onair.LiveInfo{}, fmt.Errorf("probe %s: bad version payload: %w", p.URL, err)
+	if err := json.Unmarshal(data, &v); err != nil {
+		return onair.LiveInfo{}, err
 	}
-	if v.Commit == "" {
-		return onair.LiveInfo{}, fmt.Errorf(`probe %s: version payload has no "commit"`, p.URL)
-	}
-	info := onair.LiveInfo{SHA: v.Commit, Confidence: onair.Probed}
+	info := onair.LiveInfo{SHA: v.Commit, State: strings.TrimSpace(v.State)}
 	if t, err := time.Parse(time.RFC3339, v.BuiltAt); err == nil {
 		info.BuiltAt = t
 	}

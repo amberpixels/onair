@@ -11,7 +11,8 @@
 # output only ever gains fields.
 #
 # Exit codes: 2 bad usage, 3 no container for the service, 4 no usable
-# revision label. Any non-zero exit makes onair fall back to Assumed = Green.
+# revision label or state. Any non-zero exit makes onair fall back to
+# Assumed = Green.
 set -eu
 
 REVISION_LABEL=org.opencontainers.image.revision

@@ -128,7 +128,7 @@ func TestTTYRecordedRollout(t *testing.T) {
 			{Name: "backend", Live: &onair.LiveReport{
 				CommitInfo: head, Confidence: onair.Recorded,
 				Rollout: &onair.RolloutReport{
-					CommitInfo: onair.CommitInfo{SHA: "b0b0b0b"}, Status: onair.RolloutPending, At: at.Add(30 * time.Minute),
+					CommitInfo: onair.CommitInfo{SHA: "b0b0b0b"}, Status: onair.RolloutPending, StartedAt: at.Add(30 * time.Minute),
 				},
 			}},
 			{Name: "web", Live: &onair.LiveReport{
@@ -269,5 +269,92 @@ func TestJSONState(t *testing.T) {
 	}
 	if _, ok := v.Components[1].Live["state"]; ok {
 		t.Errorf("unknown state must be omitted: %v", v.Components[1].Live)
+	}
+}
+
+// A converged deploy whose weakest component is Reported (the Compose reader
+// through `command`) must say so on the collapsed line, not read as probed.
+func TestTTYConvergedReported(t *testing.T) {
+	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
+	r := &onair.Report{
+		Project: "p44", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Head:  &head,
+		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
+		Components: []onair.ComponentReport{
+			{Name: "backend", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Probed}},
+			{Name: "web", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Reported}},
+		},
+	}
+
+	var buf strings.Builder
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Deployed:") || !strings.Contains(out, "★ current · (reported)") {
+		t.Errorf("collapsed line must carry the reported label:\n%s", out)
+	}
+}
+
+// A provider that failed falls back to Assumed, so the component has a Live;
+// its error must still reach the terminal on both the collapsed and the full
+// view.
+func TestTTYComponentErrors(t *testing.T) {
+	at := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	head := onair.CommitInfo{SHA: "6a9af3d1c00000000000000000000000000000000", Subject: "Stepper face", At: at}
+	r := &onair.Report{
+		Project: "p44", Environment: "prod",
+		Forge: onair.ForgeInfo{Kind: "gitlab", Repo: "amberpixels/p44", Branch: "main"},
+		Head:  &head,
+		Green: &onair.GreenInfo{CommitInfo: head, Pipeline: "success"},
+		Components: []onair.ComponentReport{
+			{Name: "backend", Live: &onair.LiveReport{CommitInfo: head, Confidence: onair.Assumed},
+				Error: `no successful deployment in environment "prodution"`},
+		},
+		Errors: []string{"identity: boom"},
+	}
+
+	render1 := func() string {
+		t.Helper()
+		var buf strings.Builder
+		if err := render.TTY(&buf, r, render.TTYOptions{Now: at.Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		return buf.String()
+	}
+
+	want := `! backend: no successful deployment in environment "prodution"`
+	if out := render1(); !strings.Contains(out, "Deployed:") || !strings.Contains(out, want) || !strings.Contains(out, "! identity: boom") {
+		t.Errorf("collapsed view lost an error note:\n%s", out)
+	}
+
+	r.Green = &onair.GreenInfo{CommitInfo: onair.CommitInfo{SHA: "b0b0b0b"}}
+	r.Components[0].Live.CommitInfo = r.Green.CommitInfo
+	if out := render1(); !strings.Contains(out, "Live") || !strings.Contains(out, want) {
+		t.Errorf("full view lost the component error:\n%s", out)
+	}
+
+	// No Live at all: each error still prints exactly once.
+	r.Components[0].Live = nil
+	if out := render1(); strings.Count(out, "prodution") != 1 {
+		t.Errorf("component error should print once:\n%s", out)
+	}
+}
+
+// A cell is labeled whenever its claim differs from the leader's, so a probed
+// component beside a weaker drift leader does not read as the leader's claim.
+func TestTTYStrongerCellLabeled(t *testing.T) {
+	r := report()
+	r.Components[0].Live.Confidence = onair.Recorded
+	r.Components[1].Live.Confidence = onair.Probed
+
+	var buf strings.Builder
+	if err := render.TTY(&buf, r, render.TTYOptions{Now: time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "backend 9e8d7c6 · web a1b2c3d (probed)") {
+		t.Errorf("a stronger cell should carry its label:\n%s", out)
 	}
 }

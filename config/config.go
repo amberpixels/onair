@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/amberpixels/onair"
 )
 
 // DefaultFileName is what Find looks for, walking up from the working
@@ -18,11 +20,12 @@ const DefaultFileName = ".onair.yml"
 
 // File is the parsed .onair.yml.
 type File struct {
-	Project      string                 `yaml:"project"`
-	Forge        Forge                  `yaml:"forge"`
-	Attribution  string                 `yaml:"attribution"` // off | on | auto (default auto)
-	Identities   map[string][]string    `yaml:"identities"`
-	Task         *Task                  `yaml:"task"`
+	Project     string                `yaml:"project"`
+	Forge       Forge                 `yaml:"forge"`
+	Attribution onair.AttributionMode `yaml:"attribution"` // off | on | auto (default auto)
+	Identities  map[string][]string   `yaml:"identities"`
+	// Task decodes through yaml's lowercased field names: pattern, url.
+	Task         *onair.TaskConfig      `yaml:"task"`
 	Environments map[string]Environment `yaml:"environments"`
 }
 
@@ -30,17 +33,11 @@ type File struct {
 type Forge struct {
 	Kind    string `yaml:"kind"` // default "gitlab"
 	Repo    string `yaml:"repo"`
-	Branch  string `yaml:"branch"`   // default "main"
+	Branch  string `yaml:"branch"`   // empty: onair.Collect's default
 	BaseURL string `yaml:"base_url"` // default per kind (gitlab.com)
 	// TokenEnv names the environment variable holding the API token;
 	// default "GITLAB_TOKEN". The token itself never lives in the file.
 	TokenEnv string `yaml:"token_env"`
-}
-
-// Task mirrors onair.TaskConfig: tracker ids in commit subjects -> URLs.
-type Task struct {
-	Pattern string `yaml:"pattern"`
-	URL     string `yaml:"url"`
 }
 
 // Environment is one deploy target: a named ordered list of components.
@@ -57,9 +54,10 @@ type Component struct {
 	Live *LiveSource `yaml:"live"`
 }
 
-// LiveSource picks at most one live provider. An empty block means Assumed =
-// Green, and it opts the component out of its environment's deployment
-// records; an absent block inherits them.
+// LiveSource picks at most one live provider. An absent `live` key inherits
+// the environment's deployment records; `live: {}` opts out of them, leaving
+// Assumed = Green. A bare `live:` (YAML null) is rejected, because it reads as
+// either.
 type LiveSource struct {
 	Probe   string `yaml:"probe"`   // /-/version URL
 	Command string `yaml:"command"` // stdout is the answer (see DESIGN.md)
@@ -80,10 +78,39 @@ func Load(path string) (*File, error) {
 	if err := dec.Decode(&f); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := rejectNullLive(raw); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	if err := f.validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return &f, nil
+}
+
+// rejectNullLive fails on a component whose `live` key is present but null.
+// The main decode cannot tell that from an absent key (both leave a nil
+// pointer), so a second decode reads the key as a node. A custom UnmarshalYAML
+// on Component would lose KnownFields inside components.
+func rejectNullLive(raw []byte) error {
+	var shadow struct {
+		Environments map[string]struct {
+			Components []struct {
+				Name string    `yaml:"name"`
+				Live yaml.Node `yaml:"live"`
+			} `yaml:"components"`
+		} `yaml:"environments"`
+	}
+	if err := yaml.Unmarshal(raw, &shadow); err != nil {
+		return err
+	}
+	for name, env := range shadow.Environments {
+		for _, c := range env.Components {
+			if c.Live.Kind == yaml.ScalarNode && c.Live.Tag == "!!null" {
+				return fmt.Errorf("environment %q: component %q: live is empty; write `live: {}` to opt out of deployment records, or drop the key to inherit them", name, c.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // Find walks up from dir looking for DefaultFileName.
@@ -115,9 +142,6 @@ func (f *File) validate() error {
 	if f.Forge.Kind != "gitlab" {
 		return fmt.Errorf("forge.kind %q is not supported yet (only gitlab)", f.Forge.Kind)
 	}
-	if f.Forge.Branch == "" {
-		f.Forge.Branch = "main"
-	}
 	if f.Forge.TokenEnv == "" {
 		f.Forge.TokenEnv = "GITLAB_TOKEN"
 	}
@@ -126,8 +150,8 @@ func (f *File) validate() error {
 	}
 	switch f.Attribution {
 	case "":
-		f.Attribution = "auto"
-	case "off", "on", "auto":
+		f.Attribution = onair.AttributionAuto
+	case onair.AttributionOff, onair.AttributionOn, onair.AttributionAuto:
 	default:
 		return fmt.Errorf("attribution must be off, on or auto; got %q", f.Attribution)
 	}
