@@ -74,6 +74,10 @@ split - the confidence flag, the "assumed = green" labeling, the stall detection
    embedded/library case (p44 admin route running inside the backend) does not
    have. Provider lineup: **command** (universal CLI adapter), **probe**
    (embedded / `/-/version` convention), **assumed** (fallback).
+   Reading the forge's own deployment records (`environment`, `Recorded`
+   confidence) does not break this rule: it is a forge capability, like
+   pipelines, not a per-platform adapter. It serves viewers with project read
+   access but no host access.
 
 ### The `command` provider contract
 

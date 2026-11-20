@@ -65,7 +65,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	components, err := buildComponents(envCfg, *liveRef, *component)
+	forge := gitlab.NewClient(cfg.Forge.BaseURL, cfg.Forge.Repo, os.Getenv(cfg.Forge.TokenEnv))
+	components, err := buildComponents(envCfg, forge, *liveRef, *component)
 	if err != nil {
 		return err
 	}
@@ -74,7 +75,6 @@ func run() error {
 	if trackedBranch == "" {
 		trackedBranch = cfg.Forge.Branch
 	}
-	forge := gitlab.NewClient(cfg.Forge.BaseURL, cfg.Forge.Repo, os.Getenv(cfg.Forge.TokenEnv))
 
 	params := onair.Params{
 		Project:     cfg.Project,
@@ -132,8 +132,10 @@ func pickEnvironment(cfg *config.File, name string) (string, config.Environment,
 }
 
 // buildComponents wires each configured component to its provider, applying
-// the -live-ref override (the pipe form of the command contract).
-func buildComponents(env config.Environment, liveRef, componentName string) ([]onair.Component, error) {
+// the -live-ref override (the pipe form of the command contract). A component
+// with no live source reads the environment's deployment records when one is
+// configured.
+func buildComponents(env config.Environment, forge *gitlab.Client, liveRef, componentName string) ([]onair.Component, error) {
 	override, overrideTarget := onair.LiveInfo{}, ""
 	if liveRef != "" {
 		raw := liveRef
@@ -168,6 +170,10 @@ func buildComponents(env config.Environment, liveRef, componentName string) ([]o
 			comp.Live = &live.Probe{URL: c.Live.Probe}
 		case c.Live != nil && c.Live.Command != "":
 			comp.Live = &live.Command{Command: c.Live.Command}
+		case c.Live != nil && c.Live.Environment != "":
+			comp.Live = gitlab.Deployments{Client: forge, Environment: c.Live.Environment}
+		case c.Live == nil && env.Environment != "":
+			comp.Live = gitlab.Deployments{Client: forge, Environment: env.Environment}
 		}
 		components = append(components, comp)
 	}

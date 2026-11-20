@@ -70,6 +70,7 @@ func TestLoadRejects(t *testing.T) {
 		"no environments":   "forge: { repo: a/b }",
 		"nameless comp":     "forge: { repo: a/b }\nenvironments: { prod: { components: [{ live: { probe: x } }] } }",
 		"probe AND command": "forge: { repo: a/b }\nenvironments: { prod: { components: [{ name: a, live: { probe: x, command: y } }] } }",
+		"probe AND env":     "forge: { repo: a/b }\nenvironments: { prod: { components: [{ name: a, live: { probe: x, environment: y } }] } }",
 		"bad attribution":   "forge: { repo: a/b }\nattribution: maybe\nenvironments: { prod: { components: [{ name: a }] } }",
 		"unknown key":       "forge: { repo: a/b }\ntypo_key: 1\nenvironments: { prod: { components: [{ name: a }] } }",
 	}
@@ -79,6 +80,26 @@ func TestLoadRejects(t *testing.T) {
 				t.Error("expected an error")
 			}
 		})
+	}
+}
+
+func TestLoadDeploymentEnvironments(t *testing.T) {
+	f, err := config.Load(write(t, t.TempDir(), `
+forge: { repo: amberpixels/p44 }
+environments:
+  prod:
+    environment: production
+    components:
+      - name: backend
+      - name: web
+        live: { environment: production-web }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := f.Environments["prod"]
+	if env.Environment != "production" || env.Components[1].Live.Environment != "production-web" {
+		t.Errorf("deployment environments parsed wrong: %+v", env)
 	}
 }
 

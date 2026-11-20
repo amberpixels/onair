@@ -28,9 +28,10 @@ type Client struct {
 	token   string
 	http    *http.Client
 
-	mu      sync.Mutex
-	commits map[string]onair.Ref // Resolve cache
-	behinds map[string]int       // Behind cache, key "from..to"
+	mu          sync.Mutex
+	commits     map[string]onair.Ref          // Resolve cache
+	behinds     map[string]int                // Behind cache, key "from..to"
+	deployments map[string]*deploymentsResult // Deployments cache, by environment
 }
 
 // NewClient returns a Forge for repo ("group/project") on baseURL (empty
@@ -40,12 +41,13 @@ func NewClient(baseURL, repo, token string) *Client {
 		baseURL = DefaultBaseURL
 	}
 	return &Client{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		repo:    repo,
-		token:   token,
-		http:    &http.Client{Timeout: 15 * time.Second},
-		commits: map[string]onair.Ref{},
-		behinds: map[string]int{},
+		baseURL:     strings.TrimSuffix(baseURL, "/"),
+		repo:        repo,
+		token:       token,
+		http:        &http.Client{Timeout: 15 * time.Second},
+		commits:     map[string]onair.Ref{},
+		behinds:     map[string]int{},
+		deployments: map[string]*deploymentsResult{},
 	}
 }
 

@@ -101,8 +101,11 @@ func Collect(ctx context.Context, p Params) (*Report, error) {
 		annotate(&r.Green.CommitInfo)
 	}
 	for i := range r.Components {
-		if r.Components[i].Live != nil {
-			annotate(&r.Components[i].Live.CommitInfo)
+		if lr := r.Components[i].Live; lr != nil {
+			annotate(&lr.CommitInfo)
+			if lr.Rollout != nil {
+				annotate(&lr.Rollout.CommitInfo)
+			}
 		}
 	}
 	return r, nil
@@ -138,14 +141,13 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 		info.Confidence = Reported
 	}
 
-	ref, err := p.Forge.Resolve(ctx, info.SHA)
-	if err != nil {
-		// A bare SHA is still a report; just less to say about it.
-		ref = Ref{SHA: info.SHA}
-	}
+	ref := p.resolve(ctx, info.SHA)
 	lr := &LiveReport{
 		CommitInfo: commitInfo(ref), Confidence: info.Confidence,
 		BuiltAt: info.BuiltAt, State: info.State,
+	}
+	if ro := info.Rollout; ro != nil && ro.SHA != "" {
+		lr.Rollout = &RolloutReport{CommitInfo: commitInfo(p.resolve(ctx, ro.SHA)), Status: ro.Status, At: ro.At}
 	}
 	if !green.IsZero() && !SameSHA(ref.SHA, green.SHA) {
 		if n, err := p.Forge.Behind(ctx, ref.SHA, green.SHA); err == nil {
@@ -159,6 +161,16 @@ func (p Params) collectComponent(ctx context.Context, c Component, head, green R
 	}
 	cr.Live = lr
 	return cr
+}
+
+// resolve looks a commit-ish up through the forge. A bare SHA is still a
+// report, just with less to say about it.
+func (p Params) resolve(ctx context.Context, sha string) Ref {
+	ref, err := p.Forge.Resolve(ctx, sha)
+	if err != nil {
+		return Ref{SHA: sha}
+	}
+	return ref
 }
 
 // drift compares Live across components: more than one distinct commit means
